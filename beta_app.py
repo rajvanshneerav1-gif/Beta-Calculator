@@ -334,16 +334,59 @@ div[data-testid="stSearchbox"] li {
 }
 div[data-testid="stSearchbox"] li:hover { background: #EFF6FF !important; color: #1D4ED8 !important; }
 
-/* ── Sidebar inputs ── */
-[data-testid="stSidebar"] div[data-testid="stDateInput"] input {
+/* ── Sidebar inputs — force light ── */
+[data-testid="stSidebar"] div[data-testid="stDateInput"] input,
+[data-testid="stSidebar"] input {
     background: #F9FAFB !important;
     border: 1px solid #E5E7EB !important;
     border-radius: 6px !important;
+    color: #111827 !important;
     font-size: 0.85rem !important;
 }
-[data-testid="stSidebar"] div[data-testid="stSelectbox"] > div {
+[data-testid="stSidebar"] div[data-testid="stSelectbox"] > div,
+[data-testid="stSidebar"] div[data-baseweb="select"] > div,
+[data-testid="stSidebar"] div[data-baseweb="select"] {
     background: #F9FAFB !important;
     border: 1px solid #E5E7EB !important;
+    border-radius: 6px !important;
+    color: #111827 !important;
+}
+[data-testid="stSidebar"] div[data-baseweb="select"] span,
+[data-testid="stSidebar"] div[data-baseweb="select"] div {
+    color: #111827 !important;
+    background: #F9FAFB !important;
+}
+/* Sidebar dropdown menu */
+[data-testid="stSidebar"] ul[data-baseweb="menu"],
+[data-testid="stSidebar"] ul {
+    background: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 8px !important;
+}
+[data-testid="stSidebar"] li {
+    color: #111827 !important;
+    background: #FFFFFF !important;
+}
+[data-testid="stSidebar"] li:hover {
+    background: #EFF6FF !important;
+    color: #1D4ED8 !important;
+}
+/* Sidebar button — override dark */
+[data-testid="stSidebar"] .stButton > button {
+    background: #1D4ED8 !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    font-size: 0.88rem !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    background: #1E40AF !important;
+}
+/* Sidebar warning */
+[data-testid="stSidebar"] .stWarning {
+    background: #FFFBEB !important;
+    color: #92400E !important;
     border-radius: 6px !important;
 }
 
