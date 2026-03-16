@@ -8,6 +8,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 import streamlit as st
+from streamlit_searchbox import st_searchbox
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -96,6 +97,42 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
 .stProgress > div > div > div { background-color: #3fb950 !important; }
 div[data-testid="stTextInput"] input { background: #161b22 !important; border: 1px solid #30363d !important; color: #e6edf3 !important; font-size: 1rem !important; border-radius: 8px !important; }
 div[data-testid="stTextInput"] input:focus { border-color: #3fb950 !important; box-shadow: 0 0 0 2px rgba(63,185,80,0.15) !important; }
+
+/* Typeahead searchbox styling */
+div[data-testid="stSearchbox"] input,
+.searchbox-input input {
+    background: #161b22 !important;
+    border: 1px solid #3fb950 !important;
+    border-radius: 8px !important;
+    color: #e6edf3 !important;
+    font-family: 'IBM Plex Sans', sans-serif !important;
+    font-size: 1rem !important;
+    padding: 12px 16px !important;
+}
+div[data-testid="stSearchbox"] input:focus {
+    box-shadow: 0 0 0 2px rgba(63,185,80,0.2) !important;
+}
+/* Suggestion dropdown */
+div[data-testid="stSearchbox"] ul,
+.searchbox-dropdown {
+    background: #161b22 !important;
+    border: 1px solid #21262d !important;
+    border-radius: 8px !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
+}
+div[data-testid="stSearchbox"] li,
+.searchbox-dropdown li {
+    color: #e6edf3 !important;
+    font-size: 0.88rem !important;
+    padding: 10px 16px !important;
+    border-bottom: 1px solid #21262d !important;
+}
+div[data-testid="stSearchbox"] li:hover,
+.searchbox-dropdown li:hover {
+    background: #1c2128 !important;
+    color: #3fb950 !important;
+}
+
 #MainMenu{visibility:hidden;} footer{visibility:hidden;} header{visibility:hidden;}
 </style>
 """, unsafe_allow_html=True)
@@ -142,7 +179,7 @@ def _get_ticker(symbol: str):
 @st.cache_data(ttl=120, show_spinner=False)
 def live_search(query: str) -> list:
     """Live search Yahoo Finance — covers ALL NSE + BSE listed companies."""
-    if not query or len(query.strip()) < 2:
+    if not query or len(query.strip()) < 1:
         return []
     try:
         if _HAS_CURL and _SESSION is not None:
@@ -363,10 +400,6 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
 # ══════════════════════════════════════════════════════════════════════════════
 if "selected" not in st.session_state:
     st.session_state.selected = []          # list of {name, symbol, exchange, ticker}
-if "search_results" not in st.session_state:
-    st.session_state.search_results = []
-if "last_query" not in st.session_state:
-    st.session_state.last_query = ""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -443,85 +476,65 @@ st.markdown(
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SEARCH — real-time as user types
+#  SEARCH — autocomplete dropdown
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown("<div class='sec-hdr'>SEARCH COMPANIES</div>", unsafe_allow_html=True)
+st.markdown("<div class='sec-hdr'>TYPEAHEAD COMPANY SEARCH</div>", unsafe_allow_html=True)
 st.markdown(
     "<div class='hint-box'>"
-    "Start typing a company name or ticker — results appear instantly. "
-    "Click <strong>＋ Add</strong> to build your list. "
-    "Works for <span style='color:#58a6ff;'>all NSE</span> and "
-    "<span style='color:#f0883e;'>all BSE</span> listed companies."
+    "Typeahead search — suggestions appear as you type. Works for all "
+    "<span style='color:#58a6ff;font-weight:600;'>NSE</span> and "
+    "<span style='color:#f0883e;font-weight:600;'>BSE</span> listed companies. "
+    "Select a company from the suggestions to add it."
     "</div>",
     unsafe_allow_html=True,
 )
 
-query = st.text_input(
-    "search",
-    placeholder="Type company name or ticker  —  e.g.  Dr Agarwals  /  Reliance  /  HDFCBANK",
-    label_visibility="collapsed",
-    key="live_search_input",
+def _search_companies(query: str) -> list:
+    """Called by st_searchbox on every keystroke. Returns list of display strings."""
+    if not query or len(query.strip()) < 1:
+        return []
+    results = live_search(query)
+    # Return list of display labels — we encode all info into the string
+    # Format: "Company Name  [NSE: TICKER]" or "Company Name  [BSE: CODE]"
+    labels = []
+    for r in results:
+        label = r["name"] + "  [" + r["exchange"] + ": " + r["ticker"] + "]"
+        labels.append(label)
+    return labels
+
+selected_label = st_searchbox(
+    _search_companies,
+    placeholder="Start typing a company name or ticker...",
+    key="company_searchbox",
+    clear_on_submit=True,
+    debounce=200,
+    min_execution_time=0,
+    rerun_on_update=True,
+    default_options=[],
 )
 
-# ── Trigger live search whenever query changes ────────────────────────────────
-if query != st.session_state.last_query:
-    st.session_state.last_query = query
-    if len(query.strip()) >= 2:
-        st.session_state.search_results = live_search(query)
-    else:
-        st.session_state.search_results = []
-
-# ── Render dropdown-style results immediately below the input ─────────────────
+# ── Add selected company to list ──────────────────────────────────────────────
 existing_syms = {c["symbol"] for c in st.session_state.selected}
 
-if len(query.strip()) >= 2:
-    results_list = st.session_state.search_results
-
-    if results_list:
-        for res in results_list:
-            col_name, col_idx, col_btn = st.columns([5, 2, 1])
-
-            exch_class = "nse-tag" if res["exchange"] == "NSE" else "bse-tag"
-            idx_name   = INDEX_CFG[res["exchange"]]["name"]
-            already    = res["symbol"] in existing_syms
-
-            with col_name:
-                st.markdown(
-                    "<div class='sr-row'>"
-                    "<span class='sr-name'>" + res["name"] + "</span>"
-                    "&nbsp;&nbsp;"
-                    "<span class='sr-meta " + exch_class + "'>"
-                    + res["exchange"] + " · " + res["ticker"] +
-                    "</span>"
-                    "<span class='sr-meta idx-tag'>→ " + idx_name + "</span>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-            with col_idx:
-                st.markdown("<div style='height:46px;'></div>", unsafe_allow_html=True)
-            with col_btn:
-                if already:
-                    st.markdown(
-                        "<div style='padding:12px 0;'><span class='added-tag'>✓ Added</span></div>",
-                        unsafe_allow_html=True,
-                    )
-                else:
-                    if st.button("＋ Add", key="add_" + res["symbol"], use_container_width=True):
-                        st.session_state.selected.append(res)
-                        existing_syms.add(res["symbol"])
-                        st.rerun()
-
-    elif len(query.strip()) >= 2:
-        st.markdown(
-            "<div class='no-results'>No results for \"" + query + "\" — try a different name or ticker.</div>",
-            unsafe_allow_html=True,
-        )
-
-elif len(query.strip()) == 1:
-    st.markdown(
-        "<div class='searching'>Type at least 2 characters to search...</div>",
-        unsafe_allow_html=True,
-    )
+if selected_label:
+    # Parse label back to company info
+    try:
+        name   = selected_label.split("  [")[0].strip()
+        inside = selected_label.split("[")[1].replace("]","").strip()
+        exch, ticker = inside.split(": ")
+        exch   = exch.strip()
+        ticker = ticker.strip()
+        symbol = ticker + (".NS" if exch == "NSE" else ".BO")
+        if symbol not in existing_syms:
+            st.session_state.selected.append({
+                "name":     name,
+                "symbol":   symbol,
+                "exchange": exch,
+                "ticker":   ticker,
+            })
+            st.rerun()
+    except Exception:
+        pass
 
 
 # ══════════════════════════════════════════════════════════════════════════════
