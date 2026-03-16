@@ -303,20 +303,40 @@ div[data-testid="stTextInput"] input:focus {
 }
 
 /* ── Searchbox ── */
-div[data-testid="stSearchbox"] > div > div {
+div[data-testid="stSearchbox"] > div > div,
+div[data-testid="stSearchbox"] > div,
+div[data-testid="stSearchbox"] {
     border: 1px solid #D1D5DB !important;
     border-radius: 8px !important;
     background: #FFFFFF !important;
     box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
 }
-div[data-testid="stSearchbox"] input {
+div[data-testid="stSearchbox"] input,
+div[data-testid="stSearchbox"] input::placeholder {
     font-family: 'Inter', sans-serif !important;
     font-size: 0.92rem !important;
     color: #111827 !important;
+    background: #FFFFFF !important;
+    -webkit-text-fill-color: #111827 !important;
 }
 div[data-testid="stSearchbox"] input:focus {
     border-color: #1D4ED8 !important;
     box-shadow: 0 0 0 3px rgba(29,78,216,0.1) !important;
+    background: #FFFFFF !important;
+}
+/* Force all inner divs of searchbox to white */
+div[data-testid="stSearchbox"] * {
+    background-color: #FFFFFF !important;
+    color: #111827 !important;
+}
+div[data-testid="stSearchbox"] ul,
+div[data-testid="stSearchbox"] ul * {
+    background-color: #FFFFFF !important;
+}
+div[data-testid="stSearchbox"] li:hover,
+div[data-testid="stSearchbox"] li:hover * {
+    background-color: #EFF6FF !important;
+    color: #1D4ED8 !important;
 }
 div[data-testid="stSearchbox"] ul {
     background: #FFFFFF !important;
@@ -371,17 +391,18 @@ div[data-testid="stSearchbox"] li:hover { background: #EFF6FF !important; color:
     background: #EFF6FF !important;
     color: #1D4ED8 !important;
 }
-/* Sidebar button — override dark */
+/* Sidebar button — white with blue border */
 [data-testid="stSidebar"] .stButton > button {
-    background: #1D4ED8 !important;
-    color: #FFFFFF !important;
-    border: none !important;
+    background: #FFFFFF !important;
+    color: #1D4ED8 !important;
+    border: 1px solid #BFDBFE !important;
     border-radius: 8px !important;
     font-weight: 500 !important;
     font-size: 0.88rem !important;
 }
 [data-testid="stSidebar"] .stButton > button:hover {
-    background: #1E40AF !important;
+    background: #EFF6FF !important;
+    border-color: #1D4ED8 !important;
 }
 /* Sidebar warning */
 [data-testid="stSidebar"] .stWarning {
