@@ -127,7 +127,9 @@ def live_search(query: str) -> list:
     if not query or len(query.strip()) < 2:
         return []
     try:
-        results = yf.Search(query.strip(), max_results=12, news_count=0)
+        session = _make_yf_session()
+        results = yf.Search(query.strip(), max_results=12, news_count=0,
+                            session=session)
         quotes  = results.quotes if hasattr(results, "quotes") else []
         found   = []
         for q in quotes:
@@ -151,8 +153,14 @@ def live_search(query: str) -> list:
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_prices(yf_symbol: str, start: str, end: str) -> pd.Series:
     try:
-        raw = yf.download(yf_symbol, start=start, end=end,
-                          progress=False, auto_adjust=True)
+        session = _make_yf_session()
+        tkr = yf.Ticker(yf_symbol, session=session)
+        raw = tkr.history(start=start, end=end, auto_adjust=True)
+        if raw.empty:
+            # fallback: try yf.download with session
+            raw = yf.download(yf_symbol, start=start, end=end,
+                              progress=False, auto_adjust=True,
+                              session=session)
         if raw.empty:
             return pd.Series(dtype=float)
         close = raw["Close"]
