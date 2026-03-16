@@ -11,6 +11,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import yfinance as yf
+import requests
 from datetime import date, timedelta, datetime
 import io
 
@@ -120,6 +121,23 @@ def _xcell(cell, value, bg="FFFFFF", fmt=None, bold=False, right=False):
     if fmt:
         cell.number_format = fmt
 
+# ── Cloud-compatible data fetching ───────────────────────────────────────────
+# curl_cffi impersonates Chrome at TLS level — works on Streamlit Cloud (AWS).
+# Session is created OUTSIDE cache functions (cache can't serialize sessions).
+try:
+    from curl_cffi import requests as _curl
+    _SESSION = _curl.Session(impersonate="chrome110")
+    _HAS_CURL = True
+except Exception:
+    _SESSION = None
+    _HAS_CURL = False
+
+def _get_ticker(symbol: str):
+    """Return a yf.Ticker with cloud-safe session."""
+    if _HAS_CURL and _SESSION is not None:
+        return yf.Ticker(symbol, session=_SESSION)
+    return yf.Ticker(symbol)
+
 # ── Core functions ────────────────────────────────────────────────────────────
 @st.cache_data(ttl=120, show_spinner=False)
 def live_search(query: str) -> list:
@@ -127,23 +145,24 @@ def live_search(query: str) -> list:
     if not query or len(query.strip()) < 2:
         return []
     try:
-        session = _make_yf_session()
-        results = yf.Search(query.strip(), max_results=12, news_count=0,
-                            session=session)
-        quotes  = results.quotes if hasattr(results, "quotes") else []
-        found   = []
+        if _HAS_CURL and _SESSION is not None:
+            results = yf.Search(query.strip(), max_results=12,
+                                news_count=0, session=_SESSION)
+        else:
+            results = yf.Search(query.strip(), max_results=12, news_count=0)
+        quotes = results.quotes if hasattr(results, "quotes") else []
+        found  = []
         for q in quotes:
-            sym  = q.get("symbol", "")
+            sym = q.get("symbol", "")
             if not (sym.endswith(".NS") or sym.endswith(".BO")):
                 continue
-            exch = classify_exchange(sym, q.get("exchange",""))
+            exch = classify_exchange(sym, q.get("exchange", ""))
             name = q.get("longname") or q.get("shortname") or sym
-            ticker_clean = sym.replace(".NS","").replace(".BO","")
             found.append({
                 "name":     name,
                 "symbol":   sym,
                 "exchange": exch,
-                "ticker":   ticker_clean,
+                "ticker":   sym.replace(".NS","").replace(".BO",""),
             })
         return found
     except Exception:
@@ -153,14 +172,8 @@ def live_search(query: str) -> list:
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_prices(yf_symbol: str, start: str, end: str) -> pd.Series:
     try:
-        session = _make_yf_session()
-        tkr = yf.Ticker(yf_symbol, session=session)
+        tkr = _get_ticker(yf_symbol)
         raw = tkr.history(start=start, end=end, auto_adjust=True)
-        if raw.empty:
-            # fallback: try yf.download with session
-            raw = yf.download(yf_symbol, start=start, end=end,
-                              progress=False, auto_adjust=True,
-                              session=session)
         if raw.empty:
             return pd.Series(dtype=float)
         close = raw["Close"]
