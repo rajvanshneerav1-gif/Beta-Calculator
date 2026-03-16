@@ -1,6 +1,6 @@
 """
-Equity Beta Calculator — Streamlit Web App
-Real-time search dropdown · All NSE + BSE companies
+Equity Beta Calculator — Global Edition
+Professional light theme · Inter font · Auto index routing
 Run: streamlit run beta_app.py
 """
 
@@ -20,147 +20,346 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 st.set_page_config(
-    page_title="Equity Beta Calculator",
-    page_icon="📊",
+    page_title="Beta Calculator",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Exchange / Index config ───────────────────────────────────────────────────
-INDEX_CFG = {
-    "NSE": {"yf": "^NSEI",  "name": "NIFTY 50"},
-    "BSE": {"yf": "^BSESN", "name": "SENSEX"},
+# ══════════════════════════════════════════════════════════════════════════════
+#  GLOBAL INDEX ROUTING
+#  Yahoo Finance suffix → (index_ticker, index_name, country/region)
+# ══════════════════════════════════════════════════════════════════════════════
+SUFFIX_INDEX = {
+    # India
+    ".NS":  ("^NSEI",      "Nifty 50",          "India (NSE)"),
+    ".BO":  ("^BSESN",     "Sensex",             "India (BSE)"),
+    # United States
+    "":     ("^GSPC",      "S&P 500",            "United States"),
+    ".O":   ("^GSPC",      "S&P 500",            "United States"),
+    ".Q":   ("^GSPC",      "S&P 500",            "United States"),
+    # United Kingdom
+    ".L":   ("^FTSE",      "FTSE 100",           "United Kingdom"),
+    # Germany
+    ".DE":  ("^GDAXI",     "DAX 40",             "Germany"),
+    ".F":   ("^GDAXI",     "DAX 40",             "Germany"),
+    # France
+    ".PA":  ("^FCHI",      "CAC 40",             "France"),
+    # Japan
+    ".T":   ("^N225",      "Nikkei 225",         "Japan"),
+    # Hong Kong
+    ".HK":  ("^HSI",       "Hang Seng",          "Hong Kong"),
+    # China
+    ".SS":  ("000001.SS",  "SSE Composite",      "China (Shanghai)"),
+    ".SZ":  ("399001.SZ",  "SZSE Component",     "China (Shenzhen)"),
+    # Australia
+    ".AX":  ("^AXJO",      "ASX 200",            "Australia"),
+    # Canada
+    ".TO":  ("^GSPTSE",    "S&P/TSX Composite",  "Canada"),
+    ".V":   ("^GSPTSE",    "S&P/TSX Composite",  "Canada"),
+    # Singapore
+    ".SI":  ("^STI",       "Straits Times Index","Singapore"),
+    # South Korea
+    ".KS":  ("^KS11",      "KOSPI",              "South Korea"),
+    ".KQ":  ("^KQ11",      "KOSDAQ",             "South Korea"),
+    # Brazil
+    ".SA":  ("^BVSP",      "Bovespa",            "Brazil"),
+    # Italy
+    ".MI":  ("FTSEMIB.MI", "FTSE MIB",           "Italy"),
+    # Spain
+    ".MC":  ("^IBEX",      "IBEX 35",            "Spain"),
+    # Netherlands
+    ".AS":  ("^AEX",       "AEX",                "Netherlands"),
+    # Switzerland
+    ".SW":  ("^SSMI",      "SMI",                "Switzerland"),
+    # Sweden
+    ".ST":  ("^OMX",       "OMX Stockholm 30",   "Sweden"),
+    # Norway
+    ".OL":  ("^OSEAX",     "Oslo Bors All Share","Norway"),
+    # Denmark
+    ".CO":  ("^OMXC25",    "OMX Copenhagen 25",  "Denmark"),
+    # Finland
+    ".HE":  ("^OMXH25",    "OMX Helsinki 25",    "Finland"),
+    # New Zealand
+    ".NZ":  ("^NZ50",      "NZX 50",             "New Zealand"),
+    # Portugal
+    ".LS":  ("^PSI20",     "PSI 20",             "Portugal"),
+    # Belgium
+    ".BR":  ("^BFX",       "BEL 20",             "Belgium"),
+    # Austria
+    ".VI":  ("^ATX",       "ATX",                "Austria"),
+    # Mexico
+    ".MX":  ("^MXX",       "IPC Mexico",         "Mexico"),
+    # South Africa
+    ".JO":  ("^J203.JO",   "JSE All Share",      "South Africa"),
+    # Saudi Arabia
+    ".SR":  ("^TASI.SR",   "Tadawul All Share",  "Saudi Arabia"),
+    # UAE
+    ".AD":  ("^FTFADGI",   "ADX General",        "UAE"),
+    # Taiwan
+    ".TW":  ("^TWII",      "TAIEX",              "Taiwan"),
+    ".TWO": ("^TWOII",     "TPEX",               "Taiwan"),
+    # Thailand
+    ".BK":  ("^SET.BK",    "SET Index",          "Thailand"),
+    # Malaysia
+    ".KL":  ("^KLSE",      "FTSE Bursa Malaysia","Malaysia"),
+    # Indonesia
+    ".JK":  ("^JKSE",      "IDX Composite",      "Indonesia"),
+    # Philippines
+    ".PS":  ("PSEi.PS",    "PSEi",               "Philippines"),
+    # Israel
+    ".TA":  ("^TA125.TA",  "TA-125",             "Israel"),
 }
-NSE_CODES = {"NSI", "NSE", "NIM"}
-BSE_CODES = {"BSE", "BOM"}
 
-def classify_exchange(symbol: str, exch_code: str = "") -> str:
-    if symbol.endswith(".NS"):  return "NSE"
-    if symbol.endswith(".BO"):  return "BSE"
-    if exch_code.upper() in NSE_CODES: return "NSE"
-    if exch_code.upper() in BSE_CODES: return "BSE"
-    return "NSE"
+def get_index_for_symbol(yf_symbol: str):
+    """Return (index_ticker, index_name, region) for any Yahoo Finance symbol."""
+    sym = yf_symbol.upper()
+    # Try longest suffix match first
+    for suffix in sorted(SUFFIX_INDEX.keys(), key=len, reverse=True):
+        if suffix and sym.endswith(suffix.upper()):
+            return SUFFIX_INDEX[suffix]
+    # No suffix = US stock
+    return SUFFIX_INDEX[""]
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CSS — Professional light theme, Inter font
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
-html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
-.stApp { background: #0d1117; color: #e6edf3; }
-[data-testid="stSidebar"] { background: #161b22 !important; border-right: 1px solid #21262d; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-.main-title { font-family: 'IBM Plex Mono', monospace; font-size: 2rem; font-weight: 600; color: #f0f6fc; }
-.main-sub   { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: #3fb950; letter-spacing: 3px; text-transform: uppercase; margin-top: 4px; }
-.sec-hdr    { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: #3fb950; letter-spacing: 3px; text-transform: uppercase; border-bottom: 1px solid #21262d; padding-bottom: 8px; margin-bottom: 14px; }
-
-/* Search result rows */
-.sr-row {
-    display: flex; align-items: center; justify-content: space-between;
-    background: #161b22; border: 1px solid #21262d; border-radius: 6px;
-    padding: 10px 14px; margin-bottom: 5px;
-    transition: border-color 0.15s;
+html, body, [class*="css"], .stApp {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    background-color: #F8F9FA !important;
+    color: #1A1A2E !important;
 }
-.sr-row:hover { border-color: #3fb950; }
-.sr-name  { font-size: 0.87rem; color: #e6edf3; }
-.sr-meta  { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; }
-.nse-tag  { color: #58a6ff; }
-.bse-tag  { color: #f0883e; }
-.idx-tag  { color: #484f58; margin-left: 6px; }
-.added-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #3fb950; }
 
-/* Selected list */
-.sel-row  { background: #111820; border: 1px solid #21262d; border-radius: 6px; padding: 8px 14px; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between; }
-.sel-name { font-size: 0.85rem; color: #e6edf3; }
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: #FFFFFF !important;
+    border-right: 1px solid #E5E7EB !important;
+}
+[data-testid="stSidebar"] * { color: #374151 !important; }
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stDateInput label { font-size: 0.78rem !important; font-weight: 500 !important; color: #6B7280 !important; }
 
-.tag-nse { display: inline-block; background: #0d1f38; border: 1px solid #1f3a5f; border-radius: 4px; padding: 1px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: #58a6ff; margin-right: 4px; }
-.tag-bse { display: inline-block; background: #2a1a0a; border: 1px solid #5a3010; border-radius: 4px; padding: 1px 8px; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: #f0883e; margin-right: 4px; }
+/* ── Top header bar ── */
+.top-bar {
+    background: #FFFFFF;
+    border-bottom: 1px solid #E5E7EB;
+    padding: 20px 0 16px 0;
+    margin-bottom: 28px;
+}
+.app-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: -0.3px;
+}
+.app-subtitle {
+    font-size: 0.82rem;
+    color: #6B7280;
+    font-weight: 400;
+    margin-top: 2px;
+}
 
-.hint-box { background: #111820; border: 1px solid #21262d; border-radius: 6px; padding: 10px 16px; font-size: 0.8rem; color: #8b949e; margin-bottom: 10px; }
-.err-box  { background: #1c1010; border: 1px solid #f85149; border-radius: 6px; padding: 10px 16px; color: #f85149; font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; margin-bottom: 6px; }
-.ok-box   { background: #0d1a0f; border: 1px solid #3fb950; border-radius: 6px; padding: 10px 16px; color: #3fb950; font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; }
-.empty-state { background: #161b22; border: 1px solid #21262d; border-radius: 12px; padding: 52px; text-align: center; margin-top: 24px; }
+/* ── Section labels ── */
+.section-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #6B7280;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+}
 
-.metric-card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 20px 16px; text-align: center; }
-.m-ticker { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: #8b949e; letter-spacing: 1px; }
-.m-value  { font-family: 'IBM Plex Mono', monospace; font-size: 2rem; font-weight: 600; }
-.m-label  { font-size: 0.72rem; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
-.m-r2     { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: #3fb950; margin-top: 6px; }
-.m-exch-nse { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: #58a6ff; margin-top: 4px; font-weight: 600; }
-.m-exch-bse { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: #f0883e; margin-top: 4px; font-weight: 600; }
+/* ── Cards ── */
+.card {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 8px;
+}
+.card-selected {
+    background: #F0FDF4;
+    border: 1px solid #BBF7D0;
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
 
-.no-results { font-size: 0.82rem; color: #484f58; padding: 10px 0; font-style: italic; }
-.searching  { font-size: 0.82rem; color: #8b949e; padding: 10px 0; font-family: 'IBM Plex Mono', monospace; }
+/* ── Beta result cards ── */
+.beta-card {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    padding: 22px 18px;
+    text-align: center;
+    transition: box-shadow 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.beta-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.beta-ticker   { font-size: 0.7rem; font-weight: 600; color: #9CA3AF; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 6px; }
+.beta-value    { font-size: 2.2rem; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+.beta-category { font-size: 0.72rem; font-weight: 500; color: #6B7280; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 6px; }
+.beta-r2       { font-size: 0.75rem; color: #9CA3AF; margin-top: 5px; }
+.beta-region   { font-size: 0.68rem; color: #6B7280; margin-top: 5px; }
 
-.stButton > button { background: #238636 !important; color: #fff !important; border: 1px solid #2ea043 !important; border-radius: 6px !important; font-weight: 500 !important; width: 100%; }
-.stButton > button[kind="secondary"] { background: #1c2128 !important; color: #8b949e !important; border: 1px solid #30363d !important; }
-.stDownloadButton > button { background: #1c2128 !important; color: #58a6ff !important; border: 1px solid #30363d !important; border-radius: 6px !important; width: 100%; }
-.stProgress > div > div > div { background-color: #3fb950 !important; }
-div[data-testid="stTextInput"] input { background: #161b22 !important; border: 1px solid #30363d !important; color: #e6edf3 !important; font-size: 1rem !important; border-radius: 8px !important; }
-div[data-testid="stTextInput"] input:focus { border-color: #3fb950 !important; box-shadow: 0 0 0 2px rgba(63,185,80,0.15) !important; }
+/* ── Tags ── */
+.tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-right: 4px;
+}
+.tag-india  { background: #EFF6FF; color: #1D4ED8; }
+.tag-us     { background: #F0FDF4; color: #166534; }
+.tag-uk     { background: #FFF7ED; color: #9A3412; }
+.tag-eu     { background: #FAF5FF; color: #6B21A8; }
+.tag-asia   { background: #FFF1F2; color: #9F1239; }
+.tag-other  { background: #F9FAFB; color: #374151; }
 
-/* Typeahead searchbox styling */
-div[data-testid="stSearchbox"] input,
-.searchbox-input input {
-    background: #161b22 !important;
-    border: 1px solid #3fb950 !important;
+/* ── Hint box ── */
+.hint {
+    background: #EFF6FF;
+    border: 1px solid #BFDBFE;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.82rem;
+    color: #1D4ED8;
+    margin-bottom: 14px;
+}
+
+/* ── Status boxes ── */
+.status-ok  { background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 10px 14px; color: #166534; font-size: 0.82rem; font-weight: 500; }
+.status-err { background: #FFF1F2; border: 1px solid #FECDD3; border-radius: 8px; padding: 10px 14px; color: #9F1239; font-size: 0.82rem; font-weight: 500; }
+
+/* ── Divider ── */
+.divider { height: 1px; background: #E5E7EB; margin: 22px 0; }
+
+/* ── Table ── */
+.stDataFrame { border: 1px solid #E5E7EB !important; border-radius: 10px !important; overflow: hidden; }
+
+/* ── Buttons ── */
+.stButton > button {
+    background: #1D4ED8 !important;
+    color: #FFFFFF !important;
+    border: none !important;
     border-radius: 8px !important;
-    color: #e6edf3 !important;
-    font-family: 'IBM Plex Sans', sans-serif !important;
-    font-size: 1rem !important;
-    padding: 12px 16px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 500 !important;
+    font-size: 0.88rem !important;
+    padding: 10px 20px !important;
+    transition: background 0.15s !important;
+    width: 100%;
+}
+.stButton > button:hover { background: #1E40AF !important; }
+.stButton > button:disabled { background: #D1D5DB !important; color: #9CA3AF !important; }
+
+/* Clear button */
+.clear-btn > button {
+    background: #FFFFFF !important;
+    color: #6B7280 !important;
+    border: 1px solid #D1D5DB !important;
+    border-radius: 8px !important;
+}
+.clear-btn > button:hover { background: #F9FAFB !important; border-color: #9CA3AF !important; }
+
+/* ── Download button ── */
+.stDownloadButton > button {
+    background: #FFFFFF !important;
+    color: #1D4ED8 !important;
+    border: 1px solid #BFDBFE !important;
+    border-radius: 8px !important;
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 500 !important;
+    width: 100%;
+}
+.stDownloadButton > button:hover { background: #EFF6FF !important; }
+
+/* ── Progress ── */
+.stProgress > div > div > div { background: #1D4ED8 !important; }
+
+/* ── Inputs ── */
+div[data-testid="stTextInput"] input,
+div[data-testid="stSelectbox"] select {
+    background: #FFFFFF !important;
+    border: 1px solid #D1D5DB !important;
+    border-radius: 8px !important;
+    color: #111827 !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.9rem !important;
+}
+div[data-testid="stTextInput"] input:focus {
+    border-color: #1D4ED8 !important;
+    box-shadow: 0 0 0 3px rgba(29,78,216,0.1) !important;
+}
+
+/* ── Searchbox ── */
+div[data-testid="stSearchbox"] > div > div {
+    border: 1px solid #D1D5DB !important;
+    border-radius: 8px !important;
+    background: #FFFFFF !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+}
+div[data-testid="stSearchbox"] input {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.92rem !important;
+    color: #111827 !important;
 }
 div[data-testid="stSearchbox"] input:focus {
-    box-shadow: 0 0 0 2px rgba(63,185,80,0.2) !important;
+    border-color: #1D4ED8 !important;
+    box-shadow: 0 0 0 3px rgba(29,78,216,0.1) !important;
 }
-/* Suggestion dropdown */
-div[data-testid="stSearchbox"] ul,
-.searchbox-dropdown {
-    background: #161b22 !important;
-    border: 1px solid #21262d !important;
+div[data-testid="stSearchbox"] ul {
+    background: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
     border-radius: 8px !important;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4) !important;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12) !important;
+    margin-top: 4px !important;
 }
-div[data-testid="stSearchbox"] li,
-.searchbox-dropdown li {
-    color: #e6edf3 !important;
-    font-size: 0.88rem !important;
-    padding: 10px 16px !important;
-    border-bottom: 1px solid #21262d !important;
+div[data-testid="stSearchbox"] li {
+    font-family: 'Inter', sans-serif !important;
+    font-size: 0.86rem !important;
+    color: #374151 !important;
+    padding: 10px 14px !important;
+    border-bottom: 1px solid #F3F4F6 !important;
 }
-div[data-testid="stSearchbox"] li:hover,
-.searchbox-dropdown li:hover {
-    background: #1c2128 !important;
-    color: #3fb950 !important;
+div[data-testid="stSearchbox"] li:hover { background: #EFF6FF !important; color: #1D4ED8 !important; }
+
+/* ── Sidebar inputs ── */
+[data-testid="stSidebar"] div[data-testid="stDateInput"] input {
+    background: #F9FAFB !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 6px !important;
+    font-size: 0.85rem !important;
+}
+[data-testid="stSidebar"] div[data-testid="stSelectbox"] > div {
+    background: #F9FAFB !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 6px !important;
 }
 
-#MainMenu{visibility:hidden;} footer{visibility:hidden;} header{visibility:hidden;}
+/* ── Warning ── */
+.stWarning { border-radius: 8px !important; }
+
+#MainMenu { visibility: hidden; }
+footer     { visibility: hidden; }
+header     { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Excel helpers ─────────────────────────────────────────────────────────────
-_CLR = {"h_bg":"1F3864","s_bg":"2F5597","alt":"EEF2F7","wht":"FFFFFF",
-        "grn":"C6EFCE","amb":"FFEB9C","bdr":"B8CCE4"}
-_T   = Side(style="thin", color=_CLR["bdr"])
-_BDR = Border(left=_T, right=_T, top=_T, bottom=_T)
 
-def _xhdr(cell, bg=None, sz=10):
-    cell.font      = Font(name="Arial", size=sz, bold=True, color="FFFFFF")
-    cell.fill      = PatternFill("solid", start_color=bg or _CLR["h_bg"])
-    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    cell.border    = _BDR
-
-def _xcell(cell, value, bg="FFFFFF", fmt=None, bold=False, right=False):
-    cell.value     = value
-    cell.font      = Font(name="Arial", size=10 if bold else 9, bold=bold)
-    cell.fill      = PatternFill("solid", start_color=bg)
-    cell.border    = _BDR
-    cell.alignment = Alignment(horizontal="right" if right else "center", vertical="center")
-    if fmt:
-        cell.number_format = fmt
-
-# ── Cloud-compatible data fetching ───────────────────────────────────────────
-# curl_cffi impersonates Chrome at TLS level — works on Streamlit Cloud (AWS).
-# Session is created OUTSIDE cache functions (cache can't serialize sessions).
+# ══════════════════════════════════════════════════════════════════════════════
+#  CLOUD-COMPATIBLE SESSION (curl_cffi for Streamlit Cloud / AWS)
+# ══════════════════════════════════════════════════════════════════════════════
 try:
     from curl_cffi import requests as _curl
     _SESSION = _curl.Session(impersonate="chrome110")
@@ -170,36 +369,39 @@ except Exception:
     _HAS_CURL = False
 
 def _get_ticker(symbol: str):
-    """Return a yf.Ticker with cloud-safe session."""
     if _HAS_CURL and _SESSION is not None:
         return yf.Ticker(symbol, session=_SESSION)
     return yf.Ticker(symbol)
 
-# ── Core functions ────────────────────────────────────────────────────────────
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DATA FUNCTIONS
+# ══════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=120, show_spinner=False)
 def live_search(query: str) -> list:
-    """Live search Yahoo Finance — covers ALL NSE + BSE listed companies."""
     if not query or len(query.strip()) < 1:
         return []
     try:
         if _HAS_CURL and _SESSION is not None:
-            results = yf.Search(query.strip(), max_results=12,
-                                news_count=0, session=_SESSION)
+            results = yf.Search(query.strip(), max_results=12, news_count=0, session=_SESSION)
         else:
             results = yf.Search(query.strip(), max_results=12, news_count=0)
         quotes = results.quotes if hasattr(results, "quotes") else []
         found  = []
         for q in quotes:
-            sym = q.get("symbol", "")
-            if not (sym.endswith(".NS") or sym.endswith(".BO")):
+            sym  = q.get("symbol", "")
+            # Accept any equity globally — not just .NS/.BO
+            qtype = q.get("quoteType", "").upper()
+            if qtype not in ("EQUITY", "ETF", ""):
                 continue
-            exch = classify_exchange(sym, q.get("exchange", ""))
             name = q.get("longname") or q.get("shortname") or sym
+            idx_ticker, idx_name, region = get_index_for_symbol(sym)
             found.append({
-                "name":     name,
-                "symbol":   sym,
-                "exchange": exch,
-                "ticker":   sym.replace(".NS","").replace(".BO",""),
+                "name":       name,
+                "symbol":     sym,
+                "index_yf":   idx_ticker,
+                "index_name": idx_name,
+                "region":     region,
             })
         return found
     except Exception:
@@ -224,113 +426,143 @@ def fetch_prices(yf_symbol: str, start: str, end: str) -> pd.Series:
 
 def calc_beta(comp_ret, idx_ret):
     df = pd.concat([comp_ret, idx_ret], axis=1).dropna()
-    df.columns = ["c","i"]
+    df.columns = ["c", "i"]
     n = len(df)
     if n < 20:
         return None, None, None, n
     x, y     = df["i"].values, df["c"].values
     slope, _ = np.polyfit(x, y, 1)
-    corr     = float(np.corrcoef(x, y)[0,1])
-    return round(float(slope),4), round(corr**2,4), round(corr,4), n
+    corr     = float(np.corrcoef(x, y)[0, 1])
+    return round(float(slope), 4), round(corr ** 2, 4), round(corr, 4), n
 
 
 def beta_style(b):
-    if b is None: return "#8b949e","N/A"
-    if b < 0:     return "#f85149","Negative"
-    if b < 0.8:   return "#58a6ff","Defensive"
-    if b <= 1.2:  return "#3fb950","Market-like"
-    if b <= 1.5:  return "#f0883e","Moderate"
-    return "#ff6b6b","Aggressive"
+    if b is None:  return "#9CA3AF", "N/A",          "#F9FAFB"
+    if b < 0:      return "#DC2626", "Negative",     "#FFF1F2"
+    if b < 0.8:    return "#2563EB", "Defensive",    "#EFF6FF"
+    if b <= 1.2:   return "#059669", "Market-like",  "#F0FDF4"
+    if b <= 1.5:   return "#D97706", "Moderate",     "#FFFBEB"
+    return             "#DC2626",    "Aggressive",   "#FFF1F2"
 
 
-# ── Excel export (same as before) ─────────────────────────────────────────────
+def region_tag(region: str) -> str:
+    r = region.lower()
+    if "india"    in r: return "tag-india"
+    if "united s" in r: return "tag-us"
+    if "united k" in r: return "tag-uk"
+    if any(x in r for x in ["germany","france","italy","spain","nether","sweden","norway","denmark","finland","belgium","austria","portugal"]): return "tag-eu"
+    if any(x in r for x in ["japan","china","hong kong","korea","singapore","taiwan","thailand","malaysia","indonesia","philippines"]): return "tag-asia"
+    return "tag-other"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EXCEL EXPORT
+# ══════════════════════════════════════════════════════════════════════════════
+_CLR = {"h_bg":"1D4ED8","s_bg":"3B82F6","alt":"F8FAFF","wht":"FFFFFF",
+        "grn":"DCFCE7","amb":"FEF3C7","bdr":"E5E7EB"}
+_T   = Side(style="thin", color=_CLR["bdr"])
+_BDR = Border(left=_T, right=_T, top=_T, bottom=_T)
+
+def _xhdr(cell, bg=None, sz=10):
+    cell.font      = Font(name="Calibri", size=sz, bold=True, color="FFFFFF")
+    cell.fill      = PatternFill("solid", start_color=bg or _CLR["h_bg"])
+    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell.border    = _BDR
+
+def _xcell(cell, value, bg="FFFFFF", fmt=None, bold=False, right=False):
+    cell.value     = value
+    cell.font      = Font(name="Calibri", size=10 if bold else 9, bold=bold)
+    cell.fill      = PatternFill("solid", start_color=bg)
+    cell.border    = _BDR
+    cell.alignment = Alignment(horizontal="right" if right else "center", vertical="center")
+    if fmt:
+        cell.number_format = fmt
+
 def build_excel(results: list, start_str: str, end_str: str) -> bytes:
-    wb = Workbook()
+    wb   = Workbook()
     s_ws = wb.active; s_ws.title = "Summary"
     m_ws = wb.create_sheet("Methodology")
 
     s_ws.sheet_view.showGridLines = False
-    s_ws.row_dimensions[1].height = 38
-    s_ws.row_dimensions[3].height = 28
+    s_ws.row_dimensions[1].height = 36
+    s_ws.row_dimensions[3].height = 26
 
-    s_ws.merge_cells("A1:L1")
+    s_ws.merge_cells("A1:M1")
     c = s_ws["A1"]
-    c.value = "EQUITY BETA ANALYSIS — SUMMARY  (NSE + BSE)"
-    c.font = Font(name="Arial", size=14, bold=True, color="FFFFFF")
-    c.fill = PatternFill("solid", start_color=_CLR["h_bg"])
+    c.value = "EQUITY BETA ANALYSIS — GLOBAL"
+    c.font  = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
+    c.fill  = PatternFill("solid", start_color=_CLR["h_bg"])
     c.alignment = Alignment(horizontal="center", vertical="center")
 
-    s_ws.merge_cells("A2:L2")
+    s_ws.merge_cells("A2:M2")
     c = s_ws["A2"]
-    c.value = "Period: " + start_str + " to " + end_str + "  |  Run: " + datetime.today().strftime("%d-%b-%Y") + "  |  NSE → Nifty 50  |  BSE → Sensex"
-    c.font = Font(name="Arial", size=9, italic=True, color="FFFFFF")
-    c.fill = PatternFill("solid", start_color=_CLR["s_bg"])
+    c.value = "Period: " + start_str + " to " + end_str + "  |  Run: " + datetime.today().strftime("%d-%b-%Y") + "  |  Beta = SLOPE(Stock Returns, Index Returns)"
+    c.font  = Font(name="Calibri", size=9, italic=True, color="FFFFFF")
+    c.fill  = PatternFill("solid", start_color=_CLR["s_bg"])
     c.alignment = Alignment(horizontal="center", vertical="center")
 
-    hdrs = ["S.No.","Company Name","Ticker","Exchange","Benchmark Index",
-            "Start Date","End Date","Observations","Beta","R2","Correlation","Remarks"]
+    hdrs = ["S.No.","Company","Ticker","Region","Benchmark Index","Index Ticker",
+            "Start Date","End Date","Observations","Beta","R²","Correlation","Remarks"]
     for j, h in enumerate(hdrs):
         _xhdr(s_ws.cell(row=3, column=j+1, value=h))
 
     for i, r in enumerate(results):
         row = 4+i; bg = _CLR["alt"] if i%2 else _CLR["wht"]
-        vals = [i+1, r["name"], r["ticker"], r["exchange"], r["index_name"],
+        vals = [i+1, r["name"], r["symbol"], r["region"], r["index_name"], r["index_yf"],
                 r.get("start_date","—"), r.get("end_date","—"), r.get("n_obs",0),
                 r.get("beta"), r.get("r2"), r.get("corr"), r.get("error") or ""]
         for j, v in enumerate(vals):
             _xcell(s_ws.cell(row=row, column=j+1), v, bg=bg)
-        ec = s_ws.cell(row=row, column=4)
-        ec.font = Font(name="Arial", size=9, bold=True,
-                       color="1F5297" if r["exchange"]=="NSE" else "8B4513")
-        bc = s_ws.cell(row=row, column=9)
-        bc.number_format = "0.00"; bc.font = Font(name="Arial", size=10, bold=True)
+        bc = s_ws.cell(row=row, column=10)
+        bc.number_format = "0.00"; bc.font = Font(name="Calibri", size=10, bold=True)
         if r.get("beta") is not None:
             b = r["beta"]
             fc = _CLR["grn"] if 0.8<=b<=1.5 else (_CLR["amb"] if (b>1.5 or b<0) else _CLR["wht"])
             bc.fill = PatternFill("solid", start_color=fc)
-        s_ws.cell(row=row, column=8).number_format  = "#,##0"
-        s_ws.cell(row=row, column=10).number_format = "0.0000"
+        s_ws.cell(row=row, column=9).number_format  = "#,##0"
         s_ws.cell(row=row, column=11).number_format = "0.0000"
+        s_ws.cell(row=row, column=12).number_format = "0.0000"
 
     note = 5+len(results)
-    s_ws.merge_cells("A"+str(note)+":L"+str(note))
-    s_ws["A"+str(note)].value = "Green=Beta 0.80-1.50  |  Amber=>1.50 or Negative  |  NSE→Nifty 50  |  BSE→Sensex"
-    s_ws["A"+str(note)].font = Font(name="Arial", size=8, italic=True)
+    s_ws.merge_cells("A"+str(note)+":M"+str(note))
+    s_ws["A"+str(note)].value = "Green = Beta 0.80–1.50  |  Amber = >1.50 or Negative  |  Beta = SLOPE(Stock Daily Returns, Index Daily Returns)"
+    s_ws["A"+str(note)].font = Font(name="Calibri", size=8, italic=True)
     s_ws["A"+str(note)].alignment = Alignment(horizontal="left")
 
-    for col,w in [("A",5),("B",28),("C",14),("D",10),("E",16),
-                  ("F",13),("G",13),("H",10),("I",8),("J",8),("K",12),("L",22)]:
+    for col, w in [("A",5),("B",28),("C",14),("D",18),("E",22),("F",12),
+                   ("G",13),("H",13),("I",10),("J",8),("K",8),("L",12),("M",20)]:
         s_ws.column_dimensions[col].width = w
     s_ws.freeze_panes = "A4"
 
     for r in results:
-        if r.get("aligned") is None: continue
-        aligned = r["aligned"]
+        if r.get("aligned") is None:
+            continue
+        aligned   = r["aligned"]
         idx_label = r["index_name"]
-        dws = wb.create_sheet((r["ticker"]+"_"+r["exchange"])[:31])
+        dws = wb.create_sheet(r["symbol"][:28])
         dws.sheet_view.showGridLines = False
         last_r = 3+len(aligned)
 
         dws.merge_cells("A1:I1")
         c = dws["A1"]
-        c.value = "Historical Data  —  "+r["name"]+"  vs  "+idx_label
-        c.font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
-        c.fill = PatternFill("solid", start_color=_CLR["h_bg"])
+        c.value = r["name"] + "  vs  " + idx_label + "  (" + r["region"] + ")"
+        c.font  = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        c.fill  = PatternFill("solid", start_color=_CLR["h_bg"])
         c.alignment = Alignment(horizontal="center", vertical="center")
         dws.row_dimensions[1].height = 26
 
         dws.merge_cells("A2:D2")
         c = dws["A2"]
-        c.value = r["exchange"]+" stock  |  Benchmark: "+idx_label+"  |  Beta = SLOPE(I4:I"+str(last_r)+", H4:H"+str(last_r)+")"
-        c.font = Font(name="Arial", size=9, italic=True, color="FFFFFF")
-        c.fill = PatternFill("solid", start_color=_CLR["s_bg"])
+        c.value = "Beta = SLOPE(I4:I"+str(last_r)+", H4:H"+str(last_r)+")  —  verify cell E2"
+        c.font  = Font(name="Calibri", size=9, italic=True, color="FFFFFF")
+        c.fill  = PatternFill("solid", start_color=_CLR["s_bg"])
         c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
 
         dws.merge_cells("E2:I2")
         c = dws["E2"]
         c.value = "=SLOPE(I4:I"+str(last_r)+",H4:H"+str(last_r)+")"
-        c.font = Font(name="Arial", size=11, bold=True)
-        c.fill = PatternFill("solid", start_color=_CLR["grn"])
+        c.font  = Font(name="Calibri", size=11, bold=True)
+        c.fill  = PatternFill("solid", start_color=_CLR["grn"])
         c.number_format = "0.0000"
         c.alignment = Alignment(horizontal="center", vertical="center")
         c.border = _BDR
@@ -338,60 +570,59 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
         h2 = ["Date", idx_label+" Price", idx_label+" Return", "",
                r["name"]+" Price", r["name"]+" Return", "",
                "Index Return (x)", "Stock Return (y)"]
-        for j,h in enumerate(h2):
+        for j, h in enumerate(h2):
             _xhdr(dws.cell(row=3, column=j+1, value=h), bg=_CLR["s_bg"])
 
         fmt_map = {1:"#,##0.00",2:"0.00%",4:"#,##0.00",5:"0.00%",7:"0.00%",8:"0.00%"}
-        for ii,(dt,row_d) in enumerate(aligned.iterrows()):
+        for ii, (dt, row_d) in enumerate(aligned.iterrows()):
             rr = 4+ii; bg = _CLR["alt"] if ii%2 else _CLR["wht"]
             rv = [dt.strftime("%d-%b-%Y"),
                   row_d["index_price"], row_d["index_return"], "",
                   row_d["comp_price"],  row_d["comp_return"],  "",
                   row_d["index_return"],row_d["comp_return"]]
-            for j,v in enumerate(rv):
+            for j, v in enumerate(rv):
                 _xcell(dws.cell(row=rr, column=j+1), v, bg=bg,
                        fmt=fmt_map.get(j), right=(j>0 and j not in (3,6)))
 
-        for col,w in [("A",14),("B",18),("C",18),("D",4),
-                      ("E",18),("F",20),("G",4),("H",22),("I",22)]:
+        for col, w in [("A",14),("B",18),("C",18),("D",4),
+                       ("E",18),("F",20),("G",4),("H",22),("I",22)]:
             dws.column_dimensions[col].width = w
         dws.freeze_panes = "A4"
 
     m_ws.sheet_view.showGridLines = False
     m_ws.column_dimensions["A"].width = 100
     mrows = [
-        ("BETA CALCULATION — METHODOLOGY (NSE + BSE, ALL LISTED COMPANIES)", True, _CLR["h_bg"], "FFFFFF", 13),
-        ("", False, None, None, 10),
-        ("1.  DATA SOURCE & EXCHANGE ROUTING", True, _CLR["s_bg"], "FFFFFF", 11),
-        ("Live search via Yahoo Finance API — covers ALL NSE (~2,000) and BSE (~5,000+) listed companies.", False, None, None, 10),
-        ("NSE stocks: symbol.NS  →  benchmarked vs Nifty 50 (^NSEI).", False, None, None, 10),
-        ("BSE stocks: symbol.BO  →  benchmarked vs Sensex (^BSESN).", False, None, None, 10),
-        ("Prices: Adjusted Closing Prices — auto-adjusted for splits and dividends.", False, None, None, 10),
-        ("", False, None, None, 10),
-        ("2.  RETURN CALCULATION", True, _CLR["s_bg"], "FFFFFF", 11),
-        ("Daily Return(t) = [Close(t) - Close(t-1)] / Close(t-1) — identical to Excel =(B2-B1)/B1.", False, None, None, 10),
+        ("BETA CALCULATION — METHODOLOGY (GLOBAL)",          True,  _CLR["h_bg"], "FFFFFF", 13),
+        ("",                                                  False, None,         None,     10),
+        ("1.  DATA SOURCE & GLOBAL INDEX ROUTING",           True,  _CLR["s_bg"], "FFFFFF", 11),
+        ("Data via Yahoo Finance API. Each stock is automatically matched to its country's broad market index.", False, None, None, 10),
+        ("Examples: US stocks → S&P 500  |  UK → FTSE 100  |  Germany → DAX  |  Japan → Nikkei 225", False, None, None, 10),
+        ("India NSE (.NS) → Nifty 50  |  India BSE (.BO) → Sensex  |  Hong Kong (.HK) → Hang Seng", False, None, None, 10),
+        ("Prices: Adjusted Closing — auto-adjusted for splits and dividends.",     False, None, None, 10),
+        ("",                                                  False, None,         None,     10),
+        ("2.  RETURN CALCULATION",                           True,  _CLR["s_bg"], "FFFFFF", 11),
+        ("Daily Return(t) = [Close(t) - Close(t-1)] / Close(t-1)  — identical to Excel =(B2-B1)/B1.", False, None, None, 10),
         ("Date alignment: inner join — only days where BOTH the stock and its index have data.", False, None, None, 10),
-        ("", False, None, None, 10),
-        ("3.  BETA FORMULA", True, _CLR["s_bg"], "FFFFFF", 11),
+        ("",                                                  False, None,         None,     10),
+        ("3.  BETA FORMULA",                                 True,  _CLR["s_bg"], "FFFFFF", 11),
         ("Beta = SLOPE(Stock Daily Returns, Benchmark Index Daily Returns)", False, None, None, 10),
-        ("Python: numpy.polyfit(x, y, 1)[0] — mathematically identical to Excel SLOPE.", False, None, None, 10),
-        ("Cell E2 on each sheet has a live =SLOPE() formula for independent audit.", False, None, None, 10),
-        ("", False, None, None, 10),
-        ("4.  CAPM CAVEATS", True, _CLR["s_bg"], "FFFFFF", 11),
-        ("This is LEVERED (equity) beta. Unlever using Hamada: bu = bL / [1 + (1-t)(D/E)].", False, None, None, 10),
-        ("Re-lever with target capital structure before applying in CAPM / WACC.", False, None, None, 10),
-        ("Ensure consistent benchmark index when comparing betas across a peer group.", False, None, None, 10),
+        ("Python: numpy.polyfit(x, y, 1)[0]  — mathematically identical to Excel SLOPE.", False, None, None, 10),
+        ("Cell E2 on each sheet contains a live =SLOPE() formula for independent audit.", False, None, None, 10),
+        ("",                                                  False, None,         None,     10),
+        ("4.  CAPM CAVEATS",                                 True,  _CLR["s_bg"], "FFFFFF", 11),
+        ("This is LEVERED (equity) beta. Unlever: bu = bL / [1 + (1-t)(D/E)]  (Hamada equation).", False, None, None, 10),
+        ("For cross-border comparables, ensure all betas use a common base currency return series.", False, None, None, 10),
+        ("Currency effects are NOT stripped — returns reflect local currency performance.", False, None, None, 10),
         ("Daily returns produce higher betas than weekly/monthly due to microstructure noise.", False, None, None, 10),
     ]
-    for i,(txt,bold,bg,fg,sz) in enumerate(mrows):
+    for i, (txt, bold, bg, fg, sz) in enumerate(mrows):
         ri = i+1; c = m_ws.cell(row=ri, column=1, value=txt)
-        c.font = Font(name="Arial", size=sz, bold=bold, color=fg if fg else "000000")
+        c.font = Font(name="Calibri", size=sz, bold=bold, color=fg if fg else "000000")
         if bg: c.fill = PatternFill("solid", start_color=bg)
         c.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True, indent=1)
         m_ws.row_dimensions[ri].height = 22 if bold else 17
 
-    buf = io.BytesIO()
-    wb.save(buf); buf.seek(0)
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
     return buf.read()
 
 
@@ -399,209 +630,233 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
 #  SESSION STATE
 # ══════════════════════════════════════════════════════════════════════════════
 if "selected" not in st.session_state:
-    st.session_state.selected = []          # list of {name, symbol, exchange, ticker}
+    st.session_state.selected = []
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown(
-        "<div style='padding:16px 0 8px;'>"
-        "<div style='font-family:IBM Plex Mono,monospace;font-size:1.1rem;font-weight:600;color:#f0f6fc;'>β Calculator</div>"
-        "<div style='font-family:IBM Plex Mono,monospace;font-size:0.62rem;color:#3fb950;letter-spacing:2px;margin-top:2px;'>ALL NSE + BSE · AUTO INDEX</div>"
-        "</div><hr style='border-color:#21262d;margin:10px 0;'>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <div style='padding:20px 0 12px;'>
+        <div style='font-size:1rem;font-weight:700;color:#111827;'>Beta Calculator</div>
+        <div style='font-size:0.75rem;color:#6B7280;margin-top:2px;'>Global Equity · CAPM</div>
+    </div>
+    <div style='height:1px;background:#E5E7EB;margin-bottom:20px;'></div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("<div class='sec-hdr'>DATE RANGE</div>", unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    with c1:
-        start_date = st.date_input("From", value=date(2022,1,1),
-                                   min_value=date(2010,1,1),
-                                   max_value=date.today()-timedelta(days=30))
-    with c2:
-        end_date = st.date_input("To", value=date.today(),
-                                 min_value=date(2010,1,1),
-                                 max_value=date.today())
+    st.markdown("<div class='section-label'>Analysis Period</div>", unsafe_allow_html=True)
+    start_date = st.date_input("From", value=date(2022, 1, 1),
+                               min_value=date(2005, 1, 1),
+                               max_value=date.today() - timedelta(days=30),
+                               label_visibility="collapsed")
+    end_date   = st.date_input("To", value=date.today(),
+                               min_value=date(2005, 1, 1),
+                               max_value=date.today(),
+                               label_visibility="collapsed")
+    st.markdown(f"<div style='font-size:0.72rem;color:#9CA3AF;margin-top:4px;'>{(end_date-start_date).days} days selected</div>",
+                unsafe_allow_html=True)
     if (end_date - start_date).days < 90:
-        st.warning("Select at least 90 days.")
+        st.warning("Minimum 90 days recommended.")
 
-    st.markdown("<hr style='border-color:#21262d;margin:14px 0;'>", unsafe_allow_html=True)
-    st.markdown("<div class='sec-hdr'>PRESETS</div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:1px;background:#E5E7EB;margin:20px 0;'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-label'>Quick Presets</div>", unsafe_allow_html=True)
 
     PRESETS = {
-        "-- None --":  [],
-        "Nifty IT":    [("TCS.NS","NSE","Tata Consultancy Services"),("INFY.NS","NSE","Infosys"),("WIPRO.NS","NSE","Wipro"),("HCLTECH.NS","NSE","HCL Technologies"),("TECHM.NS","NSE","Tech Mahindra")],
-        "Nifty Bank":  [("HDFCBANK.NS","NSE","HDFC Bank"),("ICICIBANK.NS","NSE","ICICI Bank"),("KOTAKBANK.NS","NSE","Kotak Mahindra Bank"),("AXISBANK.NS","NSE","Axis Bank"),("SBIN.NS","NSE","State Bank of India")],
-        "Nifty Top 5": [("RELIANCE.NS","NSE","Reliance Industries"),("TCS.NS","NSE","TCS"),("HDFCBANK.NS","NSE","HDFC Bank"),("INFY.NS","NSE","Infosys"),("ICICIBANK.NS","NSE","ICICI Bank")],
-        "Pharma":      [("SUNPHARMA.NS","NSE","Sun Pharmaceutical"),("DRREDDY.NS","NSE","Dr. Reddy's"),("CIPLA.NS","NSE","Cipla"),("DIVISLAB.NS","NSE","Divi's Laboratories"),("LUPIN.NS","NSE","Lupin")],
-        "Hospitals":   [("APOLLOHOSP.NS","NSE","Apollo Hospitals"),("FORTIS.NS","NSE","Fortis Healthcare"),("NH.NS","NSE","Narayana Hrudayalaya"),("MAXHEALTH.NS","NSE","Max Healthcare"),("MEDANTA.NS","NSE","Global Health / Medanta")],
-        "Auto":        [("MARUTI.NS","NSE","Maruti Suzuki"),("TATAMOTORS.NS","NSE","Tata Motors"),("M&M.NS","NSE","Mahindra & Mahindra"),("BAJAJ-AUTO.NS","NSE","Bajaj Auto"),("HEROMOTOCO.NS","NSE","Hero MotoCorp")],
+        "— Select —":      [],
+        "S&P 500 Tech":    [("AAPL","Apple","^GSPC","S&P 500","United States"),("MSFT","Microsoft","^GSPC","S&P 500","United States"),("GOOGL","Alphabet","^GSPC","S&P 500","United States"),("AMZN","Amazon","^GSPC","S&P 500","United States"),("META","Meta","^GSPC","S&P 500","United States")],
+        "Nifty IT":        [("TCS.NS","TCS","^NSEI","Nifty 50","India (NSE)"),("INFY.NS","Infosys","^NSEI","Nifty 50","India (NSE)"),("WIPRO.NS","Wipro","^NSEI","Nifty 50","India (NSE)"),("HCLTECH.NS","HCL Tech","^NSEI","Nifty 50","India (NSE)"),("TECHM.NS","Tech Mahindra","^NSEI","Nifty 50","India (NSE)")],
+        "Nifty Bank":      [("HDFCBANK.NS","HDFC Bank","^NSEI","Nifty 50","India (NSE)"),("ICICIBANK.NS","ICICI Bank","^NSEI","Nifty 50","India (NSE)"),("KOTAKBANK.NS","Kotak Bank","^NSEI","Nifty 50","India (NSE)"),("AXISBANK.NS","Axis Bank","^NSEI","Nifty 50","India (NSE)"),("SBIN.NS","SBI","^NSEI","Nifty 50","India (NSE)")],
+        "Global Banks":    [("JPM","JPMorgan","^GSPC","S&P 500","United States"),("HSBA.L","HSBC","^FTSE","FTSE 100","United Kingdom"),("BNP.PA","BNP Paribas","^FCHI","CAC 40","France"),("DBK.DE","Deutsche Bank","^GDAXI","DAX 40","Germany"),("8306.T","MUFG","^N225","Nikkei 225","Japan")],
+        "Global Pharma":   [("JNJ","J&J","^GSPC","S&P 500","United States"),("NVS","Novartis","^SSMI","SMI","Switzerland"),("AZN.L","AstraZeneca","^FTSE","FTSE 100","United Kingdom"),("ROG.SW","Roche","^SSMI","SMI","Switzerland"),("SUNPHARMA.NS","Sun Pharma","^NSEI","Nifty 50","India (NSE)")],
+        "Nifty Top 5":     [("RELIANCE.NS","Reliance","^NSEI","Nifty 50","India (NSE)"),("TCS.NS","TCS","^NSEI","Nifty 50","India (NSE)"),("HDFCBANK.NS","HDFC Bank","^NSEI","Nifty 50","India (NSE)"),("INFY.NS","Infosys","^NSEI","Nifty 50","India (NSE)"),("ICICIBANK.NS","ICICI Bank","^NSEI","Nifty 50","India (NSE)")],
     }
+
     preset_choice = st.selectbox("Preset", list(PRESETS.keys()), label_visibility="collapsed")
     if st.button("Load Preset", use_container_width=True):
-        if preset_choice != "-- None --":
+        if preset_choice != "— Select —":
             existing = {c["symbol"] for c in st.session_state.selected}
-            for sym, exch, name in PRESETS[preset_choice]:
+            for sym, name, idx_yf, idx_name, region in PRESETS[preset_choice]:
                 if sym not in existing:
                     st.session_state.selected.append({
-                        "name": name, "symbol": sym,
-                        "exchange": exch,
-                        "ticker": sym.replace(".NS","").replace(".BO",""),
+                        "name":sym,"symbol":sym,"index_yf":idx_yf,
+                        "index_name":idx_name,"region":region,
                     })
+                    # Try to get proper name
+                    for item in PRESETS[preset_choice]:
+                        if item[0] == sym:
+                            st.session_state.selected[-1]["name"] = item[1]
             st.rerun()
 
-    st.markdown("<hr style='border-color:#21262d;margin:8px 0 14px;'>", unsafe_allow_html=True)
-    st.markdown(
-        "<div style='font-size:0.7rem;color:#484f58;line-height:1.9;'>"
-        "<span style='color:#58a6ff;font-weight:600;'>NSE .NS</span> → Nifty 50<br>"
-        "<span style='color:#f0883e;font-weight:600;'>BSE .BO</span> → Sensex<br>"
-        "Live search · all listed cos.<br>"
-        "Beta = SLOPE(Ri, Rm)"
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div style='height:1px;background:#E5E7EB;margin:20px 0 16px;'></div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='font-size:0.72rem;color:#9CA3AF;line-height:1.9;'>
+        <strong style='color:#6B7280;'>Coverage</strong><br>
+        🇮🇳 NSE · BSE &nbsp;·&nbsp; 🇺🇸 NYSE · Nasdaq<br>
+        🇬🇧 LSE &nbsp;·&nbsp; 🇩🇪 Xetra &nbsp;·&nbsp; 🇫🇷 Euronext<br>
+        🇯🇵 TSE &nbsp;·&nbsp; 🇭🇰 HKEX &nbsp;·&nbsp; 🇨🇳 SSE<br>
+        🇦🇺 ASX &nbsp;·&nbsp; 🇨🇦 TSX &nbsp;·&nbsp; 40+ markets<br><br>
+        <strong style='color:#6B7280;'>Method</strong><br>
+        β = SLOPE(Rᵢ, Rₘ) · Excel-identical
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown(
-    "<div style='padding:28px 0 6px;'>"
-    "<div class='main-title'>Equity Beta Calculator</div>"
-    "<div class='main-sub'>All NSE + BSE Companies · Auto Index · SLOPE Methodology</div>"
-    "</div><hr style='border-color:#21262d;margin:10px 0 22px;'>",
-    unsafe_allow_html=True,
-)
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  SEARCH — autocomplete dropdown
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("<div class='sec-hdr'>TYPEAHEAD COMPANY SEARCH</div>", unsafe_allow_html=True)
-st.markdown(
-    "<div class='hint-box'>"
-    "Typeahead search — suggestions appear as you type. Works for all "
-    "<span style='color:#58a6ff;font-weight:600;'>NSE</span> and "
-    "<span style='color:#f0883e;font-weight:600;'>BSE</span> listed companies. "
-    "Select a company from the suggestions to add it."
-    "</div>",
-    unsafe_allow_html=True,
-)
+# Header
+st.markdown("""
+<div class='top-bar'>
+    <div class='app-title'>📈 Equity Beta Calculator</div>
+    <div class='app-subtitle'>Global coverage · Auto index routing · Excel-identical SLOPE methodology</div>
+</div>
+""", unsafe_allow_html=True)
 
-def _search_companies(query: str) -> list:
-    """Called by st_searchbox on every keystroke. Returns list of display strings."""
-    if not query or len(query.strip()) < 1:
-        return []
-    results = live_search(query)
-    # Return list of display labels — we encode all info into the string
-    # Format: "Company Name  [NSE: TICKER]" or "Company Name  [BSE: CODE]"
-    labels = []
-    for r in results:
-        label = r["name"] + "  [" + r["exchange"] + ": " + r["ticker"] + "]"
-        labels.append(label)
-    return labels
+# Two-column layout: search + selected
+col_search, col_selected = st.columns([5, 4], gap="large")
 
-selected_label = st_searchbox(
-    _search_companies,
-    placeholder="Start typing a company name or ticker...",
-    key="company_searchbox",
-    clear_on_submit=True,
-    debounce=200,
-    min_execution_time=0,
-    rerun_on_update=True,
-    default_options=[],
-)
+with col_search:
+    st.markdown("<div class='section-label'>Search Companies</div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class='hint'>
+        Search any listed company globally — US, India, UK, Europe, Asia and more.
+        The correct benchmark index is selected automatically per country.
+    </div>
+    """, unsafe_allow_html=True)
 
-# ── Add selected company to list ──────────────────────────────────────────────
-existing_syms = {c["symbol"] for c in st.session_state.selected}
+    def _search_fn(query: str) -> list:
+        if not query or len(query.strip()) < 1:
+            return []
+        results = live_search(query)
+        labels  = []
+        for r in results:
+            label = r["name"] + "  ·  " + r["symbol"] + "  ·  " + r["region"]
+            labels.append(label)
+        return labels
 
-if selected_label:
-    # Parse label back to company info
-    try:
-        name   = selected_label.split("  [")[0].strip()
-        inside = selected_label.split("[")[1].replace("]","").strip()
-        exch, ticker = inside.split(": ")
-        exch   = exch.strip()
-        ticker = ticker.strip()
-        symbol = ticker + (".NS" if exch == "NSE" else ".BO")
-        if symbol not in existing_syms:
-            st.session_state.selected.append({
-                "name":     name,
-                "symbol":   symbol,
-                "exchange": exch,
-                "ticker":   ticker,
-            })
-            st.rerun()
-    except Exception:
-        pass
+    selected_label = st_searchbox(
+        _search_fn,
+        placeholder="Search company name or ticker  —  e.g.  Apple  /  Reliance  /  HSBC",
+        key="global_searchbox",
+        clear_on_submit=True,
+        debounce=200,
+    )
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  SELECTED COMPANIES LIST
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("<hr style='border-color:#21262d;margin:22px 0 16px;'>", unsafe_allow_html=True)
-
-count = len(st.session_state.selected)
-hdr_text = "SELECTED COMPANIES  (" + str(count) + ")" if count else "SELECTED COMPANIES"
-st.markdown("<div class='sec-hdr'>" + hdr_text + "</div>", unsafe_allow_html=True)
-
-if st.session_state.selected:
-    for idx, comp in enumerate(st.session_state.selected):
-        col_name, col_tag, col_remove = st.columns([5, 2, 1])
-        tag_class  = "tag-nse" if comp["exchange"] == "NSE" else "tag-bse"
-        idx_name   = INDEX_CFG[comp["exchange"]]["name"]
-
-        with col_name:
-            st.markdown(
-                "<div style='padding:8px 0;font-size:0.86rem;color:#e6edf3;'>"
-                + comp["name"] + "</div>",
-                unsafe_allow_html=True,
-            )
-        with col_tag:
-            st.markdown(
-                "<div style='padding:8px 0;'>"
-                "<span class='" + tag_class + "'>" + comp["ticker"] + "</span>"
-                "<span style='font-size:0.7rem;color:#484f58;font-family:IBM Plex Mono,monospace;'>"
-                "→ " + idx_name + "</span></div>",
-                unsafe_allow_html=True,
-            )
-        with col_remove:
-            if st.button("✕", key="rm_" + str(idx) + comp["symbol"], use_container_width=True):
-                st.session_state.selected.pop(idx)
+    # Handle selection
+    if selected_label:
+        try:
+            parts  = selected_label.split("  ·  ")
+            name   = parts[0].strip()
+            symbol = parts[1].strip()
+            region = parts[2].strip() if len(parts) > 2 else ""
+            idx_yf, idx_name, region_full = get_index_for_symbol(symbol)
+            existing = {c["symbol"] for c in st.session_state.selected}
+            if symbol not in existing:
+                st.session_state.selected.append({
+                    "name":       name,
+                    "symbol":     symbol,
+                    "index_yf":   idx_yf,
+                    "index_name": idx_name,
+                    "region":     region_full,
+                })
                 st.rerun()
+        except Exception:
+            pass
 
-    st.markdown("<div style='margin-top:4px;'>", unsafe_allow_html=True)
-    if st.button("Clear All", use_container_width=False):
-        st.session_state.selected = []
-        st.rerun()
-else:
+    # Index routing reference
+    st.markdown("<div style='margin-top:20px;'>", unsafe_allow_html=True)
+    st.markdown("<div class='section-label'>Auto Index Routing</div>", unsafe_allow_html=True)
+    routing_data = {
+        "🇮🇳 India NSE / BSE": "Nifty 50 / Sensex",
+        "🇺🇸 United States":   "S&P 500",
+        "🇬🇧 United Kingdom":  "FTSE 100",
+        "🇩🇪 Germany":         "DAX 40",
+        "🇫🇷 France":          "CAC 40",
+        "🇯🇵 Japan":           "Nikkei 225",
+        "🇭🇰 Hong Kong":       "Hang Seng",
+        "🇨🇳 China":           "SSE Composite",
+        "🇦🇺 Australia":       "ASX 200",
+        "🇨🇦 Canada":          "S&P/TSX",
+        "🇸🇬 Singapore":       "STI",
+        "🇧🇷 Brazil":          "Bovespa",
+        "🇨🇭 Switzerland":     "SMI",
+    }
+    rows_html = "".join(
+        f"<div style='display:flex;justify-content:space-between;padding:5px 0;"
+        f"border-bottom:1px solid #F3F4F6;font-size:0.78rem;'>"
+        f"<span style='color:#374151;'>{k}</span>"
+        f"<span style='color:#1D4ED8;font-weight:500;'>{v}</span></div>"
+        for k, v in routing_data.items()
+    )
     st.markdown(
-        "<div style='font-size:0.82rem;color:#484f58;padding:6px 0;'>"
-        "No companies selected yet — search above to add.</div>",
+        "<div class='card' style='padding:12px 16px;'>" + rows_html + "</div>",
         unsafe_allow_html=True,
     )
 
+with col_selected:
+    count = len(st.session_state.selected)
+    st.markdown(
+        "<div class='section-label'>Selected Companies  " +
+        (f"<span style='background:#EFF6FF;color:#1D4ED8;border-radius:10px;padding:1px 8px;font-size:0.68rem;font-weight:600;'>{count}</span>" if count else "") +
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  CALCULATE BUTTON
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("<hr style='border-color:#21262d;margin:22px 0 16px;'>", unsafe_allow_html=True)
-run_col, _ = st.columns([1, 4])
-with run_col:
+    if st.session_state.selected:
+        for idx, comp in enumerate(st.session_state.selected):
+            tag_cls = region_tag(comp.get("region",""))
+            c1, c2  = st.columns([5, 1])
+            with c1:
+                st.markdown(
+                    "<div class='card' style='padding:10px 14px;margin-bottom:6px;'>"
+                    "<div style='font-size:0.86rem;font-weight:500;color:#111827;'>" + comp["name"] + "</div>"
+                    "<div style='margin-top:4px;'>"
+                    "<span class='tag " + tag_cls + "'>" + comp["symbol"] + "</span>"
+                    "<span style='font-size:0.72rem;color:#9CA3AF;'>→ " + comp["index_name"] + "</span>"
+                    "</div></div>",
+                    unsafe_allow_html=True,
+                )
+            with c2:
+                if st.button("✕", key="rm_" + str(idx) + "_" + comp["symbol"],
+                             use_container_width=True):
+                    st.session_state.selected.pop(idx)
+                    st.rerun()
+
+        with st.container():
+            st.markdown("<div class='clear-btn'>", unsafe_allow_html=True)
+            if st.button("Clear all", use_container_width=False):
+                st.session_state.selected = []
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style='border:2px dashed #E5E7EB;border-radius:10px;padding:32px;
+                    text-align:center;color:#9CA3AF;font-size:0.84rem;'>
+            Search and select companies<br>to build your peer group
+        </div>
+        """, unsafe_allow_html=True)
+
+
+# ── Calculate button ──────────────────────────────────────────────────────────
+st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+
+btn_c, _ = st.columns([1, 3])
+with btn_c:
     run = st.button(
-        "⚡  Calculate Beta  (" + str(len(st.session_state.selected)) + " companies)",
+        "Calculate Beta" + (f"  ({count} companies)" if count else ""),
         use_container_width=True,
-        disabled=(len(st.session_state.selected) == 0),
+        disabled=(count == 0),
     )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  CALCULATION ENGINE
+#  CALCULATION
 # ══════════════════════════════════════════════════════════════════════════════
 if run and st.session_state.selected:
     if (end_date - start_date).days < 30:
-        st.markdown("<div class='err-box'>Date range too short — minimum 30 days.</div>",
+        st.markdown("<div class='status-err'>Date range too short — minimum 30 days.</div>",
                     unsafe_allow_html=True)
         st.stop()
 
@@ -609,29 +864,31 @@ if run and st.session_state.selected:
     end_str   = end_date.strftime("%Y-%m-%d")
     companies = st.session_state.selected
 
-    st.markdown("<hr style='border-color:#21262d;margin:24px 0 16px;'>", unsafe_allow_html=True)
-    st.markdown("<div class='sec-hdr'>FETCHING DATA</div>", unsafe_allow_html=True)
-
+    st.markdown("<div class='section-label' style='margin-top:8px;'>Fetching Data</div>",
+                unsafe_allow_html=True)
     progress = st.progress(0)
     status   = st.empty()
 
-    # Fetch indices
-    exchanges_needed = {c["exchange"] for c in companies}
+    # Fetch unique indices
+    indices_needed = {}
+    for comp in companies:
+        key = comp["index_yf"]
+        if key not in indices_needed:
+            indices_needed[key] = {"name": comp["index_name"]}
+
     idx_cache = {}
-    for step, exch in enumerate(exchanges_needed):
-        cfg = INDEX_CFG[exch]
+    for step, (idx_yf, meta) in enumerate(indices_needed.items()):
         status.markdown(
-            "<div style='font-family:IBM Plex Mono,monospace;font-size:0.8rem;"
-            "color:#8b949e;'>Fetching " + cfg["name"] + "...</div>",
+            f"<div style='font-size:0.82rem;color:#6B7280;'>Fetching {meta['name']}...</div>",
             unsafe_allow_html=True,
         )
-        px = fetch_prices(cfg["yf"], start_str, end_str)
+        px = fetch_prices(idx_yf, start_str, end_str)
         if not px.empty:
-            idx_cache[exch] = {"prices":px, "returns":px.pct_change().dropna(), "name":cfg["name"]}
-        progress.progress(int(8*(step+1)/max(len(exchanges_needed),1)))
+            idx_cache[idx_yf] = {"prices": px, "returns": px.pct_change().dropna(), "name": meta["name"]}
+        progress.progress(int(8 * (step+1) / max(len(indices_needed), 1)))
 
     if not idx_cache:
-        st.markdown("<div class='err-box'>Could not fetch index data. Check connection.</div>",
+        st.markdown("<div class='status-err'>Could not fetch index data. Check your internet connection.</div>",
                     unsafe_allow_html=True)
         st.stop()
 
@@ -639,33 +896,23 @@ if run and st.session_state.selected:
     total   = len(companies)
 
     for i, comp in enumerate(companies):
-        exch = comp["exchange"]
-        if exch not in idx_cache:
-            results.append({"name":comp["name"],"ticker":comp["ticker"],"exchange":exch,
-                             "index_name":INDEX_CFG[exch]["name"],
-                             "beta":None,"r2":None,"corr":None,"n_obs":0,
-                             "error":"Index unavailable","aligned":None})
-            continue
-
+        idx_yf = comp["index_yf"]
         status.markdown(
-            "<div style='font-family:IBM Plex Mono,monospace;font-size:0.8rem;color:#8b949e;'>"
-            "Fetching " + comp["ticker"] + " [" + exch + "]  (" + str(i+1) + "/" + str(total) + ")...</div>",
+            f"<div style='font-size:0.82rem;color:#6B7280;'>"
+            f"Fetching {comp['symbol']}  ({i+1}/{total})...</div>",
             unsafe_allow_html=True,
         )
         prices = fetch_prices(comp["symbol"], start_str, end_str)
         progress.progress(10 + int(85*(i+1)/total))
 
-        if prices.empty:
-            results.append({"name":comp["name"],"ticker":comp["ticker"],"exchange":exch,
-                             "index_name":idx_cache[exch]["name"],
-                             "beta":None,"r2":None,"corr":None,"n_obs":0,
-                             "error":"No price data","aligned":None})
+        if prices.empty or idx_yf not in idx_cache:
+            results.append({**comp, "beta":None, "r2":None, "corr":None,
+                             "n_obs":0, "error":"No price data", "aligned":None})
             continue
 
         comp_ret = prices.pct_change().dropna()
-        idx_data = idx_cache[exch]
-
-        aligned = pd.concat({
+        idx_data = idx_cache[idx_yf]
+        aligned  = pd.concat({
             "index_price":  idx_data["prices"],
             "index_return": idx_data["returns"],
             "comp_price":   prices,
@@ -675,11 +922,8 @@ if run and st.session_state.selected:
 
         beta, r2, corr, n = calc_beta(aligned["comp_return"], aligned["index_return"])
         results.append({
-            "name":       comp["name"],
-            "ticker":     comp["ticker"],
-            "exchange":   exch,
-            "index_name": idx_data["name"],
-            "beta":beta,"r2":r2,"corr":corr,"n_obs":n,
+            **comp,
+            "beta":beta, "r2":r2, "corr":corr, "n_obs":n,
             "start_date": aligned.index.min().strftime("%d-%b-%Y") if len(aligned) else "—",
             "end_date":   aligned.index.max().strftime("%d-%b-%Y") if len(aligned) else "—",
             "error":      None if beta is not None else "Insufficient data",
@@ -689,92 +933,112 @@ if run and st.session_state.selected:
     progress.progress(100)
     ok_count = sum(1 for r in results if r["beta"] is not None)
     status.markdown(
-        "<div class='ok-box'>Done — " + str(ok_count) + " of " + str(total) + " companies processed.</div>",
+        f"<div class='status-ok'>✓  {ok_count} of {total} companies processed successfully.</div>",
         unsafe_allow_html=True,
     )
 
-    # Beta cards
+    # ── Beta cards ────────────────────────────────────────────────────────────
     valid = [r for r in results if r["beta"] is not None]
     if valid:
-        st.markdown("<hr style='border-color:#21262d;margin:22px 0 16px;'>", unsafe_allow_html=True)
-        st.markdown("<div class='sec-hdr'>BETA RESULTS</div>", unsafe_allow_html=True)
-        cols = st.columns(min(len(valid), 5))
+        st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+        st.markdown("<div class='section-label'>Results</div>", unsafe_allow_html=True)
+
+        n_cols = min(len(valid), 5)
+        cols   = st.columns(n_cols)
         for i, r in enumerate(valid):
-            color, label = beta_style(r["beta"])
-            exch_cls = "m-exch-nse" if r["exchange"]=="NSE" else "m-exch-bse"
-            with cols[i % len(cols)]:
+            color, label, bg = beta_style(r["beta"])
+            tag_cls = region_tag(r.get("region",""))
+            with cols[i % n_cols]:
                 st.markdown(
-                    "<div class='metric-card'>"
-                    "<div class='m-ticker'>" + r["ticker"] + "</div>"
-                    "<div class='m-value' style='color:"+color+";'>" + str(round(r["beta"],2)) + "</div>"
-                    "<div class='m-label'>" + label + "</div>"
-                    "<div class='m-r2'>R² = " + str(round(r["r2"],3)) + "</div>"
-                    "<div class='" + exch_cls + "'>" + r["exchange"] + " · " + r["index_name"] + "</div>"
-                    "</div>",
+                    f"<div class='beta-card' style='border-top:3px solid {color};'>"
+                    f"<div class='beta-ticker'>{r['symbol']}</div>"
+                    f"<div class='beta-value' style='color:{color};'>{round(r['beta'],2)}</div>"
+                    f"<div class='beta-category'>{label}</div>"
+                    f"<div class='beta-r2'>R² = {round(r['r2'],3)}</div>"
+                    f"<div class='beta-region'>{r.get('region','')} · {r['index_name']}</div>"
+                    f"</div>",
                     unsafe_allow_html=True,
                 )
 
-    # Results table
-    st.markdown("<div style='margin-top:22px;'>", unsafe_allow_html=True)
+    # ── Results table ─────────────────────────────────────────────────────────
+    st.markdown("<div style='margin-top:20px;'>", unsafe_allow_html=True)
     rows = []
     for r in results:
-        _, label = beta_style(r["beta"])
+        _, label, _ = beta_style(r["beta"])
         rows.append({
-            "Ticker":    r["ticker"],
-            "Exchange":  r["exchange"],
-            "Company":   r["name"][:38],
+            "Company":   r["name"],
+            "Ticker":    r["symbol"],
+            "Region":    r.get("region",""),
             "Benchmark": r["index_name"],
-            "Beta":      str(round(r["beta"],4)) if r["beta"] is not None else "—",
+            "Beta":      round(r["beta"],4) if r["beta"] is not None else None,
             "Category":  label,
-            "R²":        str(round(r["r2"],4)) if r["r2"] else "—",
-            "Obs":       r["n_obs"],
-            "Period":    r.get("start_date","—") + " to " + r.get("end_date","—"),
-            "Status":    r["error"] or "OK",
+            "R²":        round(r["r2"],4) if r["r2"] else None,
+            "Correlation": round(r["corr"],4) if r["corr"] else None,
+            "Observations": r["n_obs"],
+            "Period":    r.get("start_date","—") + " → " + r.get("end_date","—"),
+            "Status":    r["error"] or "✓",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True,
                  hide_index=True, height=min(420, 56+len(results)*36))
 
-    # Download
-    st.markdown("<hr style='border-color:#21262d;margin:22px 0 16px;'>", unsafe_allow_html=True)
-    st.markdown("<div class='sec-hdr'>EXPORT</div>", unsafe_allow_html=True)
-    excel_bytes = build_excel(results, start_date.strftime("%d-%b-%Y"), end_date.strftime("%d-%b-%Y"))
-    fname = "Beta_NSE_BSE_" + datetime.today().strftime("%Y%m%d") + ".xlsx"
+    # ── Export ────────────────────────────────────────────────────────────────
+    st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-label'>Export</div>", unsafe_allow_html=True)
 
-    dl_col, info_col = st.columns([1,3])
+    excel_bytes = build_excel(results, start_date.strftime("%d-%b-%Y"), end_date.strftime("%d-%b-%Y"))
+    fname = "Beta_Global_" + datetime.today().strftime("%Y%m%d") + ".xlsx"
+
+    dl_col, info_col = st.columns([1, 3])
     with dl_col:
-        st.download_button("⬇ Download Excel Report", data=excel_bytes, file_name=fname,
+        st.download_button("⬇  Download Excel Report", data=excel_bytes,
+                           file_name=fname,
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            use_container_width=True)
     with info_col:
         st.markdown(
-            "<div style='font-size:0.78rem;color:#8b949e;padding-top:10px;font-family:IBM Plex Mono,monospace;'>"
-            + fname + "<br><span style='color:#484f58;'>Summary · Historical Data · Methodology</span></div>",
+            f"<div style='font-size:0.78rem;color:#6B7280;padding-top:10px;'>"
+            f"{fname} &nbsp;·&nbsp; "
+            f"Summary · {ok_count} Historical Data sheets · Methodology"
+            f"</div>",
             unsafe_allow_html=True,
         )
 
+    # ── Warnings ──────────────────────────────────────────────────────────────
     bad = [r for r in results if r["error"]]
     if bad:
-        st.markdown("<hr style='border-color:#21262d;margin:20px 0 12px;'>", unsafe_allow_html=True)
-        st.markdown("<div class='sec-hdr'>WARNINGS</div>", unsafe_allow_html=True)
+        st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
         for r in bad:
             st.markdown(
-                "<div class='err-box'>" + r["ticker"] + " [" + r["exchange"] + "] — " + r["error"] + "</div>",
+                f"<div class='status-err' style='margin-bottom:6px;'>"
+                f"{r['symbol']} — {r['error']}</div>",
                 unsafe_allow_html=True,
             )
 
-# Empty state
+# ── Empty state ───────────────────────────────────────────────────────────────
 elif not st.session_state.selected:
-    st.markdown(
-        "<div class='empty-state'>"
-        "<div style='font-size:3rem;margin-bottom:16px;'>📊</div>"
-        "<div style='font-family:IBM Plex Mono,monospace;font-size:1.1rem;color:#f0f6fc;font-weight:600;margin-bottom:10px;'>Ready to calculate</div>"
-        "<div style='font-size:0.84rem;color:#484f58;max-width:460px;margin:0 auto;line-height:1.9;'>"
-        "Search companies · select from live results · calculate"
-        "</div>"
-        "<div style='margin-top:28px;display:flex;justify-content:center;gap:48px;'>"
-        "<div style='text-align:center;'><div style='font-family:IBM Plex Mono,monospace;font-size:1.2rem;color:#58a6ff;font-weight:600;'>~2,000</div><div style='font-size:0.68rem;color:#484f58;margin-top:4px;'>NSE companies</div></div>"
-        "<div style='text-align:center;'><div style='font-family:IBM Plex Mono,monospace;font-size:1.2rem;color:#f0883e;font-weight:600;'>~5,000+</div><div style='font-size:0.68rem;color:#484f58;margin-top:4px;'>BSE companies</div></div>"
-        "<div style='text-align:center;'><div style='font-family:IBM Plex Mono,monospace;font-size:1.2rem;color:#3fb950;font-weight:600;'>AUTO</div><div style='font-size:0.68rem;color:#484f58;margin-top:4px;'>index routing</div></div>"
-        "</div></div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <div style='background:#FFFFFF;border:1px solid #E5E7EB;border-radius:12px;
+                padding:56px;text-align:center;margin-top:16px;'>
+        <div style='font-size:2.4rem;margin-bottom:16px;'>📈</div>
+        <div style='font-size:1.1rem;font-weight:600;color:#111827;margin-bottom:8px;'>
+            Calculate equity beta for any listed company worldwide
+        </div>
+        <div style='font-size:0.86rem;color:#6B7280;max-width:420px;margin:0 auto;line-height:1.7;'>
+            Search any company · Set analysis period · Get beta with auto-matched benchmark index
+        </div>
+        <div style='margin-top:32px;display:flex;justify-content:center;gap:32px;flex-wrap:wrap;'>
+            <div style='text-align:center;'>
+                <div style='font-size:1.4rem;font-weight:700;color:#1D4ED8;'>40+</div>
+                <div style='font-size:0.7rem;color:#9CA3AF;margin-top:2px;'>Markets</div>
+            </div>
+            <div style='text-align:center;'>
+                <div style='font-size:1.4rem;font-weight:700;color:#059669;'>Auto</div>
+                <div style='font-size:0.7rem;color:#9CA3AF;margin-top:2px;'>Index Routing</div>
+            </div>
+            <div style='font-size:1.4rem;font-weight:700;color:#D97706;text-align:center;'>
+                <div>Excel</div>
+                <div style='font-size:0.7rem;color:#9CA3AF;margin-top:2px;font-weight:400;'>SLOPE Method</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
