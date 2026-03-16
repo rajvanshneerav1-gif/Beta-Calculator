@@ -493,11 +493,14 @@ def calc_beta(comp_ret, idx_ret):
     df.columns = ["c", "i"]
     n = len(df)
     if n < 20:
-        return None, None, None, n
+        return None, None, None, None, None, n
     x, y     = df["i"].values, df["c"].values
     slope, _ = np.polyfit(x, y, 1)
     corr     = float(np.corrcoef(x, y)[0, 1])
-    return round(float(slope), 4), round(corr ** 2, 4), round(corr, 4), n
+    # Annualised volatility: daily StdDev × sqrt(252)
+    stock_vol = float(df["c"].std() * np.sqrt(252))
+    index_vol = float(df["i"].std() * np.sqrt(252))
+    return round(float(slope), 4), round(corr**2, 4), round(corr, 4), round(stock_vol, 4), round(index_vol, 4), n
 
 
 def beta_style(b):
@@ -542,6 +545,15 @@ def _xcell(cell, value, bg="FFFFFF", fmt=None, bold=False, right=False):
     if fmt:
         cell.number_format = fmt
 
+def beta_style_excel(b):
+    """Return (color_hex, category_label, fill_hex) for Excel use."""
+    if b is None:  return "9CA3AF", "N/A",          "FFFFFF"
+    if b < 0:      return "DC2626", "Negative",     "FFF1F2"
+    if b < 0.8:    return "2563EB", "Defensive",    "EFF6FF"
+    if b <= 1.2:   return "059669", "Market-like",  "F0FDF4"
+    if b <= 1.5:   return "D97706", "Moderate",     "FFFBEB"
+    return             "DC2626",    "Aggressive",   "FFF1F2"
+
 def build_excel(results: list, start_str: str, end_str: str) -> bytes:
     wb   = Workbook()
     s_ws = wb.active; s_ws.title = "Summary"
@@ -566,35 +578,57 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
     c.alignment = Alignment(horizontal="center", vertical="center")
 
     hdrs = ["S.No.","Company","Ticker","Region","Benchmark Index","Index Ticker",
-            "Start Date","End Date","Observations","Beta","R²","Correlation","Remarks"]
+            "Start Date","End Date","Obs.",
+            "Beta","Beta Category",
+            "Stock Vol (Ann.)","Index Vol (Ann.)",
+            "R²","Correlation","Remarks"]
     for j, h in enumerate(hdrs):
         _xhdr(s_ws.cell(row=3, column=j+1, value=h))
 
     for i, r in enumerate(results):
         row = 4+i; bg = _CLR["alt"] if i%2 else _CLR["wht"]
+        _, beta_cat, _ = beta_style_excel(r.get("beta"))
+        sv = r.get("stock_vol")
+        iv = r.get("index_vol")
         vals = [i+1, r["name"], r["symbol"], r["region"], r["index_name"], r["index_yf"],
                 r.get("start_date","—"), r.get("end_date","—"), r.get("n_obs",0),
-                r.get("beta"), r.get("r2"), r.get("corr"), r.get("error") or ""]
+                r.get("beta"), beta_cat,
+                sv, iv,
+                r.get("r2"), r.get("corr"), r.get("error") or ""]
         for j, v in enumerate(vals):
             _xcell(s_ws.cell(row=row, column=j+1), v, bg=bg)
+
+        # Beta — colour coded
         bc = s_ws.cell(row=row, column=10)
         bc.number_format = "0.00"; bc.font = Font(name="Calibri", size=10, bold=True)
         if r.get("beta") is not None:
             b = r["beta"]
             fc = _CLR["grn"] if 0.8<=b<=1.5 else (_CLR["amb"] if (b>1.5 or b<0) else _CLR["wht"])
             bc.fill = PatternFill("solid", start_color=fc)
+
+        # Volatility — percentage format
+        vc = s_ws.cell(row=row, column=12)
+        vc.number_format = "0.00%"
+        vc.font = Font(name="Calibri", size=9, bold=True,
+                       color="1D4ED8" if sv else "9CA3AF")
+        ic = s_ws.cell(row=row, column=13)
+        ic.number_format = "0.00%"
+
         s_ws.cell(row=row, column=9).number_format  = "#,##0"
-        s_ws.cell(row=row, column=11).number_format = "0.0000"
-        s_ws.cell(row=row, column=12).number_format = "0.0000"
+        s_ws.cell(row=row, column=14).number_format = "0.0000"
+        s_ws.cell(row=row, column=15).number_format = "0.0000"
 
     note = 5+len(results)
-    s_ws.merge_cells("A"+str(note)+":M"+str(note))
-    s_ws["A"+str(note)].value = "Green = Beta 0.80–1.50  |  Amber = >1.50 or Negative  |  Beta = SLOPE(Stock Daily Returns, Index Daily Returns)"
+    s_ws.merge_cells("A"+str(note)+":P"+str(note))
+    s_ws["A"+str(note)].value = ("Green = Beta 0.80–1.50  |  Amber = >1.50 or Negative  |  "
+                                  "Volatility = Annualised StdDev of Daily Returns × √252  |  "
+                                  "Beta = SLOPE(Stock Returns, Index Returns)")
     s_ws["A"+str(note)].font = Font(name="Calibri", size=8, italic=True)
     s_ws["A"+str(note)].alignment = Alignment(horizontal="left")
 
-    for col, w in [("A",5),("B",28),("C",14),("D",18),("E",22),("F",12),
-                   ("G",13),("H",13),("I",10),("J",8),("K",8),("L",12),("M",20)]:
+    for col, w in [("A",5),("B",26),("C",12),("D",16),("E",20),("F",10),
+                   ("G",13),("H",13),("I",8),("J",8),("K",14),
+                   ("L",14),("M",14),("N",8),("O",12),("P",20)]:
         s_ws.column_dimensions[col].width = w
     s_ws.freeze_panes = "A4"
 
@@ -971,6 +1005,7 @@ if run and st.session_state.selected:
 
         if prices.empty or idx_yf not in idx_cache:
             results.append({**comp, "beta":None, "r2":None, "corr":None,
+                             "stock_vol":None, "index_vol":None,
                              "n_obs":0, "error":"No price data", "aligned":None})
             continue
 
@@ -984,10 +1019,11 @@ if run and st.session_state.selected:
         }, axis=1).dropna()
         aligned.columns = ["index_price","index_return","comp_price","comp_return"]
 
-        beta, r2, corr, n = calc_beta(aligned["comp_return"], aligned["index_return"])
+        beta, r2, corr, stock_vol, index_vol, n = calc_beta(aligned["comp_return"], aligned["index_return"])
         results.append({
             **comp,
-            "beta":beta, "r2":r2, "corr":corr, "n_obs":n,
+            "beta":beta, "r2":r2, "corr":corr,
+            "stock_vol":stock_vol, "index_vol":index_vol, "n_obs":n,
             "start_date": aligned.index.min().strftime("%d-%b-%Y") if len(aligned) else "—",
             "end_date":   aligned.index.max().strftime("%d-%b-%Y") if len(aligned) else "—",
             "error":      None if beta is not None else "Insufficient data",
@@ -1019,6 +1055,7 @@ if run and st.session_state.selected:
                     f"<div class='beta-value' style='color:{color};'>{round(r['beta'],2)}</div>"
                     f"<div class='beta-category'>{label}</div>"
                     f"<div class='beta-r2'>R² = {round(r['r2'],3)}</div>"
+                    f"<div class='beta-r2'>Vol = {round(r['stock_vol']*100,1)}% p.a.</div>"
                     f"<div class='beta-region'>{r.get('region','')} · {r['index_name']}</div>"
                     f"</div>",
                     unsafe_allow_html=True,
@@ -1030,17 +1067,19 @@ if run and st.session_state.selected:
     for r in results:
         _, label, _ = beta_style(r["beta"])
         rows.append({
-            "Company":   r["name"],
-            "Ticker":    r["symbol"],
-            "Region":    r.get("region",""),
-            "Benchmark": r["index_name"],
-            "Beta":      round(r["beta"],4) if r["beta"] is not None else None,
-            "Category":  label,
-            "R²":        round(r["r2"],4) if r["r2"] else None,
-            "Correlation": round(r["corr"],4) if r["corr"] else None,
+            "Company":      r["name"],
+            "Ticker":       r["symbol"],
+            "Region":       r.get("region",""),
+            "Benchmark":    r["index_name"],
+            "Beta":         round(r["beta"],4) if r["beta"] is not None else None,
+            "Category":     label,
+            "Volatility (Ann.)": f"{round(r['stock_vol']*100,2)}%" if r.get("stock_vol") else "—",
+            "Index Vol (Ann.)":  f"{round(r['index_vol']*100,2)}%" if r.get("index_vol") else "—",
+            "R²":           round(r["r2"],4) if r["r2"] else None,
+            "Correlation":  round(r["corr"],4) if r["corr"] else None,
             "Observations": r["n_obs"],
-            "Period":    r.get("start_date","—") + " → " + r.get("end_date","—"),
-            "Status":    r["error"] or "✓",
+            "Period":       r.get("start_date","—") + " → " + r.get("end_date","—"),
+            "Status":       r["error"] or "✓",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True,
                  hide_index=True, height=min(420, 56+len(results)*36))
