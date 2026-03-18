@@ -2,6 +2,18 @@
 Equity Beta Calculator — Global Edition
 Professional light theme · Inter font · Auto index routing
 Run: streamlit run beta_app.py
+
+CHANGE LOG
+──────────
+v2 – Max-period fallback
+    When the user-selected window yields < 20 observations for a stock
+    (e.g. recently-listed company within a 5-year window), the app
+    automatically re-fetches the full available history (period="max")
+    and uses that instead.  The result is clearly flagged:
+      • Beta card shows a ⚠ warning banner with the actual date range.
+      • Results table gains a "Data Source" column: "Selected" vs "Max available".
+      • Excel export: Summary sheet shows "Max available (YYYY-MM-DD → YYYY-MM-DD)"
+        in the Remarks column; individual stock sheets carry a note in row 2.
 """
 
 import warnings
@@ -114,11 +126,9 @@ SUFFIX_INDEX = {
 def get_index_for_symbol(yf_symbol: str):
     """Return (index_ticker, index_name, region) for any Yahoo Finance symbol."""
     sym = yf_symbol.upper()
-    # Try longest suffix match first
     for suffix in sorted(SUFFIX_INDEX.keys(), key=len, reverse=True):
         if suffix and sym.endswith(suffix.upper()):
             return SUFFIX_INDEX[suffix]
-    # No suffix = US stock
     return SUFFIX_INDEX[""]
 
 
@@ -210,6 +220,18 @@ html, body, [class*="css"], .stApp {
 .beta-r2       { font-size: 0.75rem; color: #9CA3AF; margin-top: 5px; }
 .beta-region   { font-size: 0.68rem; color: #6B7280; margin-top: 5px; }
 
+/* ── Fallback notice on beta card ── */
+.beta-fallback {
+    margin-top: 8px;
+    background: #FFFBEB;
+    border: 1px solid #FDE68A;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 0.65rem;
+    color: #92400E;
+    line-height: 1.4;
+}
+
 /* ── Tags ── */
 .tag {
     display: inline-block;
@@ -240,6 +262,7 @@ html, body, [class*="css"], .stApp {
 /* ── Status boxes ── */
 .status-ok  { background: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 10px 14px; color: #166534; font-size: 0.82rem; font-weight: 500; }
 .status-err { background: #FFF1F2; border: 1px solid #FECDD3; border-radius: 8px; padding: 10px 14px; color: #9F1239; font-size: 0.82rem; font-weight: 500; }
+.status-warn { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 10px 14px; color: #92400E; font-size: 0.82rem; font-weight: 500; margin-bottom: 6px; }
 
 /* ── Divider ── */
 .divider { height: 1px; background: #E5E7EB; margin: 22px 0; }
@@ -324,7 +347,6 @@ div[data-testid="stSearchbox"] input:focus {
     box-shadow: 0 0 0 3px rgba(29,78,216,0.1) !important;
     background: #FFFFFF !important;
 }
-/* Force all inner divs of searchbox to white */
 div[data-testid="stSearchbox"] * {
     background-color: #FFFFFF !important;
     color: #111827 !important;
@@ -376,7 +398,6 @@ div[data-testid="stSearchbox"] li:hover { background: #EFF6FF !important; color:
     color: #111827 !important;
     background: #F9FAFB !important;
 }
-/* Sidebar dropdown menu */
 [data-testid="stSidebar"] ul[data-baseweb="menu"],
 [data-testid="stSidebar"] ul {
     background: #FFFFFF !important;
@@ -391,7 +412,6 @@ div[data-testid="stSearchbox"] li:hover { background: #EFF6FF !important; color:
     background: #EFF6FF !important;
     color: #1D4ED8 !important;
 }
-/* Sidebar button — white with blue border */
 [data-testid="stSidebar"] .stButton > button {
     background: #FFFFFF !important;
     color: #1D4ED8 !important;
@@ -404,7 +424,6 @@ div[data-testid="stSearchbox"] li:hover { background: #EFF6FF !important; color:
     background: #EFF6FF !important;
     border-color: #1D4ED8 !important;
 }
-/* Sidebar warning */
 [data-testid="stSidebar"] .stWarning {
     background: #FFFBEB !important;
     color: #92400E !important;
@@ -454,7 +473,6 @@ def live_search(query: str) -> list:
         found  = []
         for q in quotes:
             sym  = q.get("symbol", "")
-            # Accept any equity globally — not just .NS/.BO
             qtype = q.get("quoteType", "").upper()
             if qtype not in ("EQUITY", "ETF", ""):
                 continue
@@ -474,6 +492,7 @@ def live_search(query: str) -> list:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_prices(yf_symbol: str, start: str, end: str) -> pd.Series:
+    """Fetch adjusted closing prices for the requested date window."""
     try:
         tkr = _get_ticker(yf_symbol)
         raw = tkr.history(start=start, end=end, auto_adjust=True)
@@ -488,16 +507,40 @@ def fetch_prices(yf_symbol: str, start: str, end: str) -> pd.Series:
         return pd.Series(dtype=float)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_prices_max(yf_symbol: str) -> pd.Series:
+    """
+    Fallback: fetch the maximum available price history for a symbol.
+    Used when the user-selected period yields insufficient observations
+    (e.g. a stock listed after the chosen start date).
+    """
+    try:
+        tkr = _get_ticker(yf_symbol)
+        raw = tkr.history(period="max", auto_adjust=True)
+        if raw.empty:
+            return pd.Series(dtype=float)
+        close = raw["Close"]
+        if isinstance(close, pd.DataFrame):
+            close = close.iloc[:, 0]
+        close.index = pd.to_datetime(close.index).normalize()
+        return close.astype(float)
+    except Exception:
+        return pd.Series(dtype=float)
+
+
+# Minimum observations required to compute a reliable beta
+_MIN_OBS = 20
+
+
 def calc_beta(comp_ret, idx_ret):
     df = pd.concat([comp_ret, idx_ret], axis=1).dropna()
     df.columns = ["c", "i"]
     n = len(df)
-    if n < 20:
+    if n < _MIN_OBS:
         return None, None, None, None, None, n
     x, y     = df["i"].values, df["c"].values
     slope, _ = np.polyfit(x, y, 1)
     corr     = float(np.corrcoef(x, y)[0, 1])
-    # Annualised volatility: daily StdDev × sqrt(252)
     stock_vol = float(df["c"].std() * np.sqrt(252))
     index_vol = float(df["i"].std() * np.sqrt(252))
     return round(float(slope), 4), round(corr**2, 4), round(corr, 4), round(stock_vol, 4), round(index_vol, 4), n
@@ -526,7 +569,7 @@ def region_tag(region: str) -> str:
 #  EXCEL EXPORT
 # ══════════════════════════════════════════════════════════════════════════════
 _CLR = {"h_bg":"1D4ED8","s_bg":"3B82F6","alt":"F8FAFF","wht":"FFFFFF",
-        "grn":"DCFCE7","amb":"FEF3C7","bdr":"E5E7EB"}
+        "grn":"DCFCE7","amb":"FEF3C7","warn":"FEF9C3","bdr":"E5E7EB"}
 _T   = Side(style="thin", color=_CLR["bdr"])
 _BDR = Border(left=_T, right=_T, top=_T, bottom=_T)
 
@@ -546,7 +589,6 @@ def _xcell(cell, value, bg="FFFFFF", fmt=None, bold=False, right=False):
         cell.number_format = fmt
 
 def beta_style_excel(b):
-    """Return (color_hex, category_label, fill_hex) for Excel use."""
     if b is None:  return "9CA3AF", "N/A",          "FFFFFF"
     if b < 0:      return "DC2626", "Negative",     "FFF1F2"
     if b < 0.8:    return "2563EB", "Defensive",    "EFF6FF"
@@ -563,25 +605,29 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
     s_ws.row_dimensions[1].height = 36
     s_ws.row_dimensions[3].height = 26
 
-    s_ws.merge_cells("A1:M1")
+    s_ws.merge_cells("A1:N1")
     c = s_ws["A1"]
     c.value = "EQUITY BETA ANALYSIS — GLOBAL"
     c.font  = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     c.fill  = PatternFill("solid", start_color=_CLR["h_bg"])
     c.alignment = Alignment(horizontal="center", vertical="center")
 
-    s_ws.merge_cells("A2:M2")
+    s_ws.merge_cells("A2:N2")
     c = s_ws["A2"]
-    c.value = "Period: " + start_str + " to " + end_str + "  |  Run: " + datetime.today().strftime("%d-%b-%Y") + "  |  Beta = SLOPE(Stock Returns, Index Returns)"
+    c.value = ("Period: " + start_str + " to " + end_str +
+               "  |  Run: " + datetime.today().strftime("%d-%b-%Y") +
+               "  |  Beta = SLOPE(Stock Returns, Index Returns)"
+               "  |  ⚠ = max available history used (stock listed after selected start)")
     c.font  = Font(name="Calibri", size=9, italic=True, color="FFFFFF")
     c.fill  = PatternFill("solid", start_color=_CLR["s_bg"])
     c.alignment = Alignment(horizontal="center", vertical="center")
 
+    # One extra column: "Data Source"
     hdrs = ["S.No.","Company","Ticker","Region","Benchmark Index","Index Ticker",
             "Start Date","End Date","Obs.",
             "Beta","Beta Category",
             "Stock Vol (Ann.)","Index Vol (Ann.)",
-            "R²","Correlation","Remarks"]
+            "R²","Correlation","Data Source","Remarks"]
     for j, h in enumerate(hdrs):
         _xhdr(s_ws.cell(row=3, column=j+1, value=h))
 
@@ -590,13 +636,18 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
         _, beta_cat, _ = beta_style_excel(r.get("beta"))
         sv = r.get("stock_vol")
         iv = r.get("index_vol")
+        is_fallback = r.get("fallback", False)
+        data_source = ("⚠ Max available" if is_fallback else "Selected period")
         vals = [i+1, r["name"], r["symbol"], r["region"], r["index_name"], r["index_yf"],
                 r.get("start_date","—"), r.get("end_date","—"), r.get("n_obs",0),
                 r.get("beta"), beta_cat,
                 sv, iv,
-                r.get("r2"), r.get("corr"), r.get("error") or ""]
+                r.get("r2"), r.get("corr"),
+                data_source,
+                r.get("error") or ""]
         for j, v in enumerate(vals):
-            _xcell(s_ws.cell(row=row, column=j+1), v, bg=bg)
+            cell_bg = _CLR["warn"] if is_fallback and j == 15 else bg
+            _xcell(s_ws.cell(row=row, column=j+1), v, bg=cell_bg)
 
         # Beta — colour coded
         bc = s_ws.cell(row=row, column=10)
@@ -606,7 +657,6 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
             fc = _CLR["grn"] if 0.8<=b<=1.5 else (_CLR["amb"] if (b>1.5 or b<0) else _CLR["wht"])
             bc.fill = PatternFill("solid", start_color=fc)
 
-        # Volatility — percentage format
         vc = s_ws.cell(row=row, column=12)
         vc.number_format = "0.00%"
         vc.font = Font(name="Calibri", size=9, bold=True,
@@ -619,24 +669,29 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
         s_ws.cell(row=row, column=15).number_format = "0.0000"
 
     note = 5+len(results)
-    s_ws.merge_cells("A"+str(note)+":P"+str(note))
-    s_ws["A"+str(note)].value = ("Green = Beta 0.80–1.50  |  Amber = >1.50 or Negative  |  "
-                                  "Volatility = Annualised StdDev of Daily Returns × √252  |  "
-                                  "Beta = SLOPE(Stock Returns, Index Returns)")
+    s_ws.merge_cells("A"+str(note)+":Q"+str(note))
+    s_ws["A"+str(note)].value = (
+        "Green = Beta 0.80–1.50  |  Amber = >1.50 or Negative  |  "
+        "Volatility = Annualised StdDev of Daily Returns × √252  |  "
+        "Beta = SLOPE(Stock Returns, Index Returns)  |  "
+        "⚠ Data Source 'Max available' = stock listed after selected start date; full history used."
+    )
     s_ws["A"+str(note)].font = Font(name="Calibri", size=8, italic=True)
     s_ws["A"+str(note)].alignment = Alignment(horizontal="left")
 
     for col, w in [("A",5),("B",26),("C",12),("D",16),("E",20),("F",10),
                    ("G",13),("H",13),("I",8),("J",8),("K",14),
-                   ("L",14),("M",14),("N",8),("O",12),("P",20)]:
+                   ("L",14),("M",14),("N",8),("O",12),("P",20),("Q",28)]:
         s_ws.column_dimensions[col].width = w
     s_ws.freeze_panes = "A4"
 
+    # ── Per-stock data sheets ─────────────────────────────────────────────────
     for r in results:
         if r.get("aligned") is None:
             continue
         aligned   = r["aligned"]
         idx_label = r["index_name"]
+        is_fallback = r.get("fallback", False)
         dws = wb.create_sheet(r["symbol"][:28])
         dws.sheet_view.showGridLines = False
         last_r = 3+len(aligned)
@@ -651,9 +706,12 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
 
         dws.merge_cells("A2:D2")
         c = dws["A2"]
-        c.value = "Beta = SLOPE(I4:I"+str(last_r)+", H4:H"+str(last_r)+")  —  verify cell E2"
-        c.font  = Font(name="Calibri", size=9, italic=True, color="FFFFFF")
-        c.fill  = PatternFill("solid", start_color=_CLR["s_bg"])
+        fallback_note = ("  ⚠ MAX AVAILABLE HISTORY — stock listed after selected start date" if is_fallback else "")
+        c.value = ("Beta = SLOPE(I4:I"+str(last_r)+", H4:H"+str(last_r)+")  —  verify cell E2" + fallback_note)
+        c.font  = Font(name="Calibri", size=9, italic=True,
+                       color="FFFFFF" if not is_fallback else "92400E")
+        c.fill  = PatternFill("solid",
+                              start_color=(_CLR["warn"] if is_fallback else _CLR["s_bg"]))
         c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
 
         dws.merge_cells("E2:I2")
@@ -687,6 +745,7 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
             dws.column_dimensions[col].width = w
         dws.freeze_panes = "A4"
 
+    # ── Methodology sheet ─────────────────────────────────────────────────────
     m_ws.sheet_view.showGridLines = False
     m_ws.column_dimensions["A"].width = 100
     mrows = [
@@ -707,11 +766,18 @@ def build_excel(results: list, start_str: str, end_str: str) -> bytes:
         ("Python: numpy.polyfit(x, y, 1)[0]  — mathematically identical to Excel SLOPE.", False, None, None, 10),
         ("Cell E2 on each sheet contains a live =SLOPE() formula for independent audit.", False, None, None, 10),
         ("",                                                  False, None,         None,     10),
-        ("4.  CAPM CAVEATS",                                 True,  _CLR["s_bg"], "FFFFFF", 11),
+        ("4.  MAX-PERIOD FALLBACK",                          True,  _CLR["s_bg"], "FFFFFF", 11),
+        ("If a stock was listed after the selected start date, fewer than 20 aligned observations are available.", False, None, None, 10),
+        ("In that case the app automatically fetches the full available history (period='max') and uses that instead.", False, None, None, 10),
+        ("These results are flagged '⚠ Max available' in the Summary sheet and in the per-stock sheet header.", False, None, None, 10),
+        ("The actual date range used is shown in the Start Date / End Date columns.", False, None, None, 10),
+        ("",                                                  False, None,         None,     10),
+        ("5.  CAPM CAVEATS",                                 True,  _CLR["s_bg"], "FFFFFF", 11),
         ("This is LEVERED (equity) beta. Unlever: bu = bL / [1 + (1-t)(D/E)]  (Hamada equation).", False, None, None, 10),
         ("For cross-border comparables, ensure all betas use a common base currency return series.", False, None, None, 10),
         ("Currency effects are NOT stripped — returns reflect local currency performance.", False, None, None, 10),
         ("Daily returns produce higher betas than weekly/monthly due to microstructure noise.", False, None, None, 10),
+        ("Max-period fallback betas cover a shorter window and may not be directly comparable to peers.", False, None, None, 10),
     ]
     for i, (txt, bold, bg, fg, sz) in enumerate(mrows):
         ri = i+1; c = m_ws.cell(row=ri, column=1, value=txt)
@@ -780,7 +846,6 @@ with st.sidebar:
                         "name":sym,"symbol":sym,"index_yf":idx_yf,
                         "index_name":idx_name,"region":region,
                     })
-                    # Try to get proper name
                     for item in PRESETS[preset_choice]:
                         if item[0] == sym:
                             st.session_state.selected[-1]["name"] = item[1]
@@ -795,7 +860,9 @@ with st.sidebar:
         🇯🇵 TSE &nbsp;·&nbsp; 🇭🇰 HKEX &nbsp;·&nbsp; 🇨🇳 SSE<br>
         🇦🇺 ASX &nbsp;·&nbsp; 🇨🇦 TSX &nbsp;·&nbsp; 40+ markets<br><br>
         <strong style='color:#6B7280;'>Method</strong><br>
-        β = SLOPE(Rᵢ, Rₘ) · Excel-identical
+        β = SLOPE(Rᵢ, Rₘ) · Excel-identical<br><br>
+        <strong style='color:#6B7280;'>Fallback</strong><br>
+        ⚠ Recently-listed stocks auto-use<br>max available history
     </div>
     """, unsafe_allow_html=True)
 
@@ -804,15 +871,13 @@ with st.sidebar:
 #  MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Header
 st.markdown("""
 <div class='top-bar'>
     <div class='app-title'>📈 Equity Beta Calculator</div>
-    <div class='app-subtitle'>Global coverage · Auto index routing · Excel-identical SLOPE methodology</div>
+    <div class='app-subtitle'>Global coverage · Auto index routing · Excel-identical SLOPE methodology · ⚠ Auto max-period fallback for recently-listed stocks</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Two-column layout: search + selected
 col_search, col_selected = st.columns([5, 4], gap="large")
 
 with col_search:
@@ -821,6 +886,7 @@ with col_search:
     <div class='hint'>
         Search any listed company globally — US, India, UK, Europe, Asia and more.
         The correct benchmark index is selected automatically per country.
+        Recently-listed stocks will automatically use their full available history if the selected period is too short.
     </div>
     """, unsafe_allow_html=True)
 
@@ -842,7 +908,6 @@ with col_search:
         debounce=200,
     )
 
-    # Handle selection
     if selected_label:
         try:
             parts  = selected_label.split("  ·  ")
@@ -863,7 +928,6 @@ with col_search:
         except Exception:
             pass
 
-    # Index routing reference
     st.markdown("<div style='margin-top:20px;'>", unsafe_allow_html=True)
     st.markdown("<div class='section-label'>Auto Index Routing</div>", unsafe_allow_html=True)
     routing_data = {
@@ -967,7 +1031,7 @@ if run and st.session_state.selected:
     progress = st.progress(0)
     status   = st.empty()
 
-    # Fetch unique indices
+    # ── Fetch unique indices ───────────────────────────────────────────────────
     indices_needed = {}
     for comp in companies:
         key = comp["index_yf"]
@@ -982,7 +1046,11 @@ if run and st.session_state.selected:
         )
         px = fetch_prices(idx_yf, start_str, end_str)
         if not px.empty:
-            idx_cache[idx_yf] = {"prices": px, "returns": px.pct_change().dropna(), "name": meta["name"]}
+            idx_cache[idx_yf] = {
+                "prices":  px,
+                "returns": px.pct_change().dropna(),
+                "name":    meta["name"],
+            }
         progress.progress(int(8 * (step+1) / max(len(indices_needed), 1)))
 
     if not idx_cache:
@@ -990,8 +1058,9 @@ if run and st.session_state.selected:
                     unsafe_allow_html=True)
         st.stop()
 
-    results = []
-    total   = len(companies)
+    results      = []
+    total        = len(companies)
+    fallback_log = []   # collect fallback notices for display after cards
 
     for i, comp in enumerate(companies):
         idx_yf = comp["index_yf"]
@@ -1003,24 +1072,85 @@ if run and st.session_state.selected:
         prices = fetch_prices(comp["symbol"], start_str, end_str)
         progress.progress(10 + int(85*(i+1)/total))
 
+        # ── Determine whether fallback is needed ──────────────────────────────
+        used_fallback = False
+        fallback_reason = ""
+
         if prices.empty or idx_yf not in idx_cache:
+            # No data at all in selected window → try max
+            prices_max = fetch_prices_max(comp["symbol"])
+            if not prices_max.empty:
+                prices = prices_max
+                used_fallback = True
+                fallback_reason = "No data in selected period — using full available history"
+            else:
+                results.append({**comp, "beta":None, "r2":None, "corr":None,
+                                 "stock_vol":None, "index_vol":None,
+                                 "n_obs":0, "error":"No price data",
+                                 "aligned":None, "fallback":False})
+                continue
+        else:
+            # We have some data — check if aligned observations are sufficient
+            comp_ret_probe = prices.pct_change().dropna()
+            if idx_yf in idx_cache:
+                probe_aligned = pd.concat(
+                    [idx_cache[idx_yf]["returns"], comp_ret_probe], axis=1
+                ).dropna()
+                if len(probe_aligned) < _MIN_OBS:
+                    status.markdown(
+                        f"<div style='font-size:0.82rem;color:#D97706;'>"
+                        f"{comp['symbol']}: only {len(probe_aligned)} obs in selected period — "
+                        f"fetching max available history...</div>",
+                        unsafe_allow_html=True,
+                    )
+                    prices_max = fetch_prices_max(comp["symbol"])
+                    if not prices_max.empty:
+                        prices = prices_max
+                        used_fallback = True
+                        fallback_reason = (
+                            f"Only {len(probe_aligned)} obs in selected period — "
+                            "full available history used"
+                        )
+
+        if idx_yf not in idx_cache:
             results.append({**comp, "beta":None, "r2":None, "corr":None,
                              "stock_vol":None, "index_vol":None,
-                             "n_obs":0, "error":"No price data", "aligned":None})
+                             "n_obs":0, "error":"Index data unavailable",
+                             "aligned":None, "fallback":False})
             continue
 
+        # ── When using fallback prices we need a wider index window too ────────
+        if used_fallback and not prices.empty:
+            max_start = prices.index.min().strftime("%Y-%m-%d")
+            max_end   = prices.index.max().strftime("%Y-%m-%d")
+            # Re-fetch or extend index data to cover the stock's full range
+            idx_px_ext = fetch_prices(idx_yf, max_start, max_end)
+            if idx_px_ext.empty:
+                # Graceful degradation: use whatever index data we have
+                idx_data_used = idx_cache[idx_yf]
+            else:
+                idx_data_used = {
+                    "prices":  idx_px_ext,
+                    "returns": idx_px_ext.pct_change().dropna(),
+                    "name":    idx_cache[idx_yf]["name"],
+                }
+        else:
+            idx_data_used = idx_cache[idx_yf]
+
         comp_ret = prices.pct_change().dropna()
-        idx_data = idx_cache[idx_yf]
         aligned  = pd.concat({
-            "index_price":  idx_data["prices"],
-            "index_return": idx_data["returns"],
+            "index_price":  idx_data_used["prices"],
+            "index_return": idx_data_used["returns"],
             "comp_price":   prices,
             "comp_return":  comp_ret,
         }, axis=1).dropna()
         aligned.columns = ["index_price","index_return","comp_price","comp_return"]
 
-        beta, r2, corr, stock_vol, index_vol, n = calc_beta(aligned["comp_return"], aligned["index_return"])
-        results.append({
+        beta, r2, corr, stock_vol, index_vol, n = calc_beta(
+            aligned["comp_return"], aligned["index_return"]
+        )
+
+        result_entry = {
             **comp,
             "beta":beta, "r2":r2, "corr":corr,
             "stock_vol":stock_vol, "index_vol":index_vol, "n_obs":n,
@@ -1028,12 +1158,29 @@ if run and st.session_state.selected:
             "end_date":   aligned.index.max().strftime("%d-%b-%Y") if len(aligned) else "—",
             "error":      None if beta is not None else "Insufficient data",
             "aligned":    aligned if beta is not None else None,
-        })
+            "fallback":   used_fallback,
+            "fallback_reason": fallback_reason,
+        }
+        results.append(result_entry)
+
+        if used_fallback and beta is not None:
+            fallback_log.append({
+                "symbol": comp["symbol"],
+                "name":   comp["name"],
+                "reason": fallback_reason,
+                "start":  result_entry["start_date"],
+                "end":    result_entry["end_date"],
+                "n_obs":  n,
+            })
 
     progress.progress(100)
-    ok_count = sum(1 for r in results if r["beta"] is not None)
+    ok_count       = sum(1 for r in results if r["beta"] is not None)
+    fallback_count = sum(1 for r in results if r.get("fallback"))
+    status_msg = f"✓  {ok_count} of {total} companies processed successfully."
+    if fallback_count:
+        status_msg += f"  ⚠ {fallback_count} used max available history (recently listed)."
     status.markdown(
-        f"<div class='status-ok'>✓  {ok_count} of {total} companies processed successfully.</div>",
+        f"<div class='status-ok'>{status_msg}</div>",
         unsafe_allow_html=True,
     )
 
@@ -1048,6 +1195,13 @@ if run and st.session_state.selected:
         for i, r in enumerate(valid):
             color, label, bg = beta_style(r["beta"])
             tag_cls = region_tag(r.get("region",""))
+            fallback_html = ""
+            if r.get("fallback"):
+                fallback_html = (
+                    f"<div class='beta-fallback'>"
+                    f"⚠ Max available data<br>{r.get('start_date','?')} → {r.get('end_date','?')}"
+                    f"</div>"
+                )
             with cols[i % n_cols]:
                 st.markdown(
                     f"<div class='beta-card' style='border-top:3px solid {color};'>"
@@ -1057,9 +1211,23 @@ if run and st.session_state.selected:
                     f"<div class='beta-r2'>R² = {round(r['r2'],3)}</div>"
                     f"<div class='beta-r2'>Vol = {round(r['stock_vol']*100,1)}% p.a.</div>"
                     f"<div class='beta-region'>{r.get('region','')} · {r['index_name']}</div>"
+                    f"{fallback_html}"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+
+    # ── Fallback notices ──────────────────────────────────────────────────────
+    if fallback_log:
+        st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+        for fl in fallback_log:
+            st.markdown(
+                f"<div class='status-warn'>"
+                f"⚠ <strong>{fl['symbol']} ({fl['name']})</strong> — {fl['reason']}. "
+                f"Beta computed over {fl['n_obs']} observations "
+                f"({fl['start']} → {fl['end']})."
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
     # ── Results table ─────────────────────────────────────────────────────────
     st.markdown("<div style='margin-top:20px;'>", unsafe_allow_html=True)
@@ -1067,19 +1235,20 @@ if run and st.session_state.selected:
     for r in results:
         _, label, _ = beta_style(r["beta"])
         rows.append({
-            "Company":      r["name"],
-            "Ticker":       r["symbol"],
-            "Region":       r.get("region",""),
-            "Benchmark":    r["index_name"],
-            "Beta":         round(r["beta"],4) if r["beta"] is not None else None,
-            "Category":     label,
-            "Volatility (Ann.)": f"{round(r['stock_vol']*100,2)}%" if r.get("stock_vol") else "—",
-            "Index Vol (Ann.)":  f"{round(r['index_vol']*100,2)}%" if r.get("index_vol") else "—",
-            "R²":           round(r["r2"],4) if r["r2"] else None,
-            "Correlation":  round(r["corr"],4) if r["corr"] else None,
-            "Observations": r["n_obs"],
-            "Period":       r.get("start_date","—") + " → " + r.get("end_date","—"),
-            "Status":       r["error"] or "✓",
+            "Company":          r["name"],
+            "Ticker":           r["symbol"],
+            "Region":           r.get("region",""),
+            "Benchmark":        r["index_name"],
+            "Beta":             round(r["beta"],4) if r["beta"] is not None else None,
+            "Category":         label,
+            "Volatility (Ann.)":f"{round(r['stock_vol']*100,2)}%" if r.get("stock_vol") else "—",
+            "Index Vol (Ann.):":f"{round(r['index_vol']*100,2)}%" if r.get("index_vol") else "—",
+            "R²":               round(r["r2"],4) if r["r2"] else None,
+            "Correlation":      round(r["corr"],4) if r["corr"] else None,
+            "Observations":     r["n_obs"],
+            "Period":           r.get("start_date","—") + " → " + r.get("end_date","—"),
+            "Data Source":      "⚠ Max available" if r.get("fallback") else "Selected",
+            "Status":           r["error"] or "✓",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True,
                  hide_index=True, height=min(420, 56+len(results)*36))
@@ -1102,12 +1271,13 @@ if run and st.session_state.selected:
             f"<div style='font-size:0.78rem;color:#6B7280;padding-top:10px;'>"
             f"{fname} &nbsp;·&nbsp; "
             f"Summary · {ok_count} Historical Data sheets · Methodology"
-            f"</div>",
+            + (f" &nbsp;·&nbsp; ⚠ {fallback_count} fallback stock(s) noted" if fallback_count else "")
+            + f"</div>",
             unsafe_allow_html=True,
         )
 
-    # ── Warnings ──────────────────────────────────────────────────────────────
-    bad = [r for r in results if r["error"]]
+    # ── Hard errors (no data at all) ──────────────────────────────────────────
+    bad = [r for r in results if r["error"] and not r.get("fallback")]
     if bad:
         st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
         for r in bad:
@@ -1127,7 +1297,8 @@ elif not st.session_state.selected:
             Calculate equity beta for any listed company worldwide
         </div>
         <div style='font-size:0.86rem;color:#6B7280;max-width:420px;margin:0 auto;line-height:1.7;'>
-            Search any company · Set analysis period · Get beta with auto-matched benchmark index
+            Search any company · Set analysis period · Get beta with auto-matched benchmark index<br>
+            Recently-listed stocks automatically use their full available history
         </div>
         <div style='margin-top:32px;display:flex;justify-content:center;gap:32px;flex-wrap:wrap;'>
             <div style='text-align:center;'>
@@ -1141,6 +1312,10 @@ elif not st.session_state.selected:
             <div style='font-size:1.4rem;font-weight:700;color:#D97706;text-align:center;'>
                 <div>Excel</div>
                 <div style='font-size:0.7rem;color:#9CA3AF;margin-top:2px;font-weight:400;'>SLOPE Method</div>
+            </div>
+            <div style='text-align:center;'>
+                <div style='font-size:1.4rem;font-weight:700;color:#92400E;'>⚠</div>
+                <div style='font-size:0.7rem;color:#9CA3AF;margin-top:2px;'>Max-period fallback</div>
             </div>
         </div>
     </div>
