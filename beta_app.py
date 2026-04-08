@@ -810,14 +810,14 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     st.markdown("<div class='section-label'>Analysis Period</div>", unsafe_allow_html=True)
-    start_date = st.date_input("From", value=date(2022, 1, 1),
+    start_date = st.date_input("From", value=date(2005, 1, 1),
                                min_value=date(2005, 1, 1),
                                max_value=date.today() - timedelta(days=30),
-                               label_visibility="collapsed")
+                               label_visibility="visible")
     end_date   = st.date_input("To", value=date.today(),
                                min_value=date(2005, 1, 1),
                                max_value=date.today(),
-                               label_visibility="collapsed")
+                               label_visibility="visible")
     st.markdown(f"<div style='font-size:0.72rem;color:#9CA3AF;margin-top:4px;'>{(end_date-start_date).days} days selected</div>",
                 unsafe_allow_html=True)
     if (end_date - start_date).days < 90:
@@ -836,7 +836,7 @@ with st.sidebar:
         "Nifty Top 5":     [("RELIANCE.NS","Reliance","^NSEI","Nifty 50","India (NSE)"),("TCS.NS","TCS","^NSEI","Nifty 50","India (NSE)"),("HDFCBANK.NS","HDFC Bank","^NSEI","Nifty 50","India (NSE)"),("INFY.NS","Infosys","^NSEI","Nifty 50","India (NSE)"),("ICICIBANK.NS","ICICI Bank","^NSEI","Nifty 50","India (NSE)")],
     }
 
-    preset_choice = st.selectbox("Preset", list(PRESETS.keys()), label_visibility="collapsed")
+    preset_choice = st.selectbox("Preset", list(PRESETS.keys()), label_visibility="visible")
     if st.button("Load Preset", use_container_width=True):
         if preset_choice != "— Select —":
             existing = {c["symbol"] for c in st.session_state.selected}
